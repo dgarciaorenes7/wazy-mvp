@@ -18,6 +18,11 @@ class ReadsTheTime(unittest.TestCase):
         self.check("Pay rent in 2 minutes", "Pay rent", NOW + timedelta(minutes=2))
         self.check("check the oven in an hour", "Check the oven", NOW + timedelta(hours=1))
 
+    def test_days_and_weeks_ahead_mean_ten_oclock_that_day(self):
+        self.check("send the report in 2 days", "Send the report", datetime(2026, 10, 15, 10, 0))
+        self.check("call mum in a week", "Call mum", datetime(2026, 10, 20, 10, 0))
+        self.check("pagar la matrícula en 3 días", "Pagar la matrícula", datetime(2026, 10, 16, 10, 0))
+
     def test_weekday_without_time_means_ten_oclock(self):
         self.check("Reply to Carlos by Thursday", "Reply to Carlos", datetime(2026, 10, 15, 10, 0))
 

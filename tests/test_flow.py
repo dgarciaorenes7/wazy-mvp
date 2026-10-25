@@ -101,6 +101,31 @@ class TheLoop(unittest.TestCase):
         commitment = store.state()["commitments"][0]
         self.assertEqual((commitment["title"], commitment["nudge_at"]), ("Buy milk", "2026-10-13T20:00:00"))
 
+    def test_later_tapped_after_midnight_means_this_morning(self):
+        store = self.new_store()
+        late = datetime(2026, 10, 14, 0, 30)
+        store.handle_text("Pay rent in 5 seconds", now=late - timedelta(seconds=5))
+        store.run_due(late)
+        store.answer_nudge(store.state()["commitments"][0]["id"], "later", now=late)
+        self.assertEqual(store.state()["commitments"][0]["nudge_at"], "2026-10-14T10:00:00")
+
+    def test_typed_done_with_nothing_open_is_not_read_as_a_commitment(self):
+        store = self.new_store()
+        store.handle_text("done", now=T0)
+        self.assertIn("no nudge waiting", bot_texts(store)[-1])
+        self.assertEqual(store.state()["commitments"], [])
+        self.assertEqual(store.setting("pending_title"), "")
+
+    def test_stats_count_every_row_not_just_the_latest_fifty(self):
+        store = self.new_store()
+        for i in range(60):
+            store.handle_text(f"Task {i} in 5 seconds", now=T0)
+        store.run_due(T0 + timedelta(seconds=5))
+        for c in store.state()["commitments"][:30]:
+            store.answer_nudge(c["id"], "done", now=T0 + timedelta(seconds=9))
+        stats = store.state()["stats"]
+        self.assertEqual((stats["commitments"], stats["nudges"], stats["done_rate"]), (60, 60, 100))
+
     def test_long_messages_are_cut_to_300_characters(self):
         store = self.new_store()
         store.handle_text("x" * 1000, now=T0)

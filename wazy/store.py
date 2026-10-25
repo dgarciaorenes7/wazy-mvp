@@ -55,10 +55,12 @@ DONE_WORDS = {"done", "hecho", "ok done", "listo", "✓ done"}
 LATER_WORDS = {"later", "luego", "más tarde", "mas tarde", "snooze"}
 NO_REPLY_AFTER = timedelta(hours=24)
 LATER_HOUR = 10            # "Later" means: one more nudge, next morning at 10:00
+NIGHT_ENDS = 5             # Later tapped before 05:00 still means "this morning", not the day after
 OUTCOME_LABELS = {"done": "Done", "later": "Later", "stop": "Stopped", "no_reply": "No reply"}
 
 
 def local_now() -> datetime:
+    """This computer's local time. The server passes a clock in the chosen time zone instead (WAZY_TZ)."""
     return datetime.now().replace(microsecond=0)
 
 
@@ -140,7 +142,8 @@ class Store:
     def later_time(self, now: datetime) -> datetime:
         if self.later_minutes:
             return now + timedelta(minutes=self.later_minutes)
-        return datetime.combine(now.date() + timedelta(days=1), time(LATER_HOUR, 0))
+        morning = now.date() if now.hour < NIGHT_ENDS else now.date() + timedelta(days=1)
+        return datetime.combine(morning, time(LATER_HOUR, 0))
 
     def latest_open_commitment(self) -> Optional[int]:
         row = self._one("SELECT id FROM commitments WHERE status = 'nudged' ORDER BY id DESC LIMIT 1")
@@ -170,7 +173,9 @@ class Store:
             open_id = self.latest_open_commitment()
             if open_id:
                 self.answer_nudge(open_id, "done" if word in DONE_WORDS else "later", now=now, echo=False)
-                return
+            else:
+                self._say("There's no nudge waiting for an answer right now. Text me a new commitment any time.", now)
+            return
 
         reading = read_commitment(text, now, self.api_key, self.ai_model)
         pending_title = self.setting("pending_title")
@@ -256,19 +261,27 @@ class Store:
         outcomes = self._all("SELECT o.*, c.title FROM nudge_outcomes o JOIN commitments c ON c.id = o.commitment_id "
                              "ORDER BY o.id DESC LIMIT 50")
         commitments = self._all("SELECT * FROM commitments ORDER BY id DESC LIMIT 50")
-        answered = [o for o in outcomes if o["outcome"] != "pending"]
-        done = [o for o in outcomes if o["outcome"] == "done"]
         return {
             "messages": messages,
             "open": open_nudges,
             "outcomes": outcomes,
             "commitments": commitments,
-            "stats": {
-                "commitments": len(commitments),
-                "nudges": len(outcomes),
-                "done_rate": round(100 * len(done) / len(answered)) if answered else None,
-                "median_seconds_to_done": statistics.median([o["seconds_to_respond"] for o in done]) if done else None,
-            },
+            "stats": self.stats(),
+        }
+
+    def stats(self) -> dict:
+        """The Guess 1 numbers, over every row ever recorded (the lists above only show the latest 50)."""
+        counts = self._one(
+            "SELECT (SELECT COUNT(*) FROM commitments) AS commitments, COUNT(*) AS nudges, "
+            "SUM(outcome != 'pending') AS answered, SUM(outcome = 'done') AS done FROM nudge_outcomes")
+        done_seconds = [row["seconds_to_respond"] for row in self._all(
+            "SELECT seconds_to_respond FROM nudge_outcomes WHERE outcome = 'done'")]
+        answered, done = counts["answered"] or 0, counts["done"] or 0
+        return {
+            "commitments": counts["commitments"],
+            "nudges": counts["nudges"],
+            "done_rate": round(100 * done / answered) if answered else None,
+            "median_seconds_to_done": statistics.median(done_seconds) if done_seconds else None,
         }
 
     def close(self) -> None:

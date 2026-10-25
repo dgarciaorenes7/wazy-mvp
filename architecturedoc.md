@@ -31,7 +31,7 @@ The technology we are deliberately NOT using, and why.
 
 ## Tradeoffs consciously accepted
 What we are choosing to ignore or do poorly on purpose, and what we gain by doing that.
-- A separate slice instead of an MVP_MODE switch in the old app: small, safe and testable (22 tests), but WhatsApp, templates and the phone allow-list must be wired into it before the user test.
+- A separate slice instead of an MVP_MODE switch in the old app: small, safe and testable (29 tests since 25 Oct), but WhatsApp, templates and the phone allow-list must be wired into it before the user test.
 - An access code instead of a phone allow-list: only people we give the QR link to can reach it, but there is one conversation per server, so one tester per server until per-person links exist.
 - Rule-based reading: free, fast and predictable, but it only understands the phrasings we wrote rules for. The AI reader is there for the rest.
 - State lives in SQLite, so a restart loses nothing; only the message rate limit is in memory.
@@ -65,7 +65,8 @@ Session 6 (13 Oct, hackathon):
 - Before the user test: rotate the Twilio and Anthropic keys and set spending caps; connect the Twilio WhatsApp webhook and template to the same store; one link (or allow-listed number) per tester; move to an always-on host; tell testers who processes their texts.
 
 Session 6 follow-up (25 Oct):
-- We created this repository on GitHub. We didn't have one on 13 Oct and handed the build in as a zip (`wazy-mvp-Andrea-David.zip`), so the first commit is that zip unchanged, which is the end-of-class version plus the after-class clean-up above. The code hasn't changed since.
-- The Session 5 defence runs. On 25 Oct I ran the full loop (three commitments, four nudges, one Later that came back as a second nudge) and it left four rows in `nudge_outcomes` with the outcome and the seconds to respond. The screenshot is in `docs/`. This was our own run, not a user.
+- We created this repository on GitHub. We didn't have one on 13 Oct and handed the build in as a zip (`wazy-mvp-Andrea-David.zip`), so the first commit is that zip unchanged, which is the end-of-class version plus the after-class clean-up above.
+- The Session 5 defence runs. On 25 Oct we ran the full loop (three commitments, four nudges, one Later that came back as a second nudge) and it left four rows in `nudge_outcomes` with the outcome and the seconds to respond. The screenshot is in `docs/`. This was our own run, not a user.
 - No outside users yet. 19 to 23 Oct was midterm week and none of the students we asked wanted to try it during exams, so testing with users starts on Mon 26 Oct.
-- Still open before the test can measure Guess 1 properly: WhatsApp (rotated keys, the webhook and the Done / Later template), one link or allow-listed number for each tester, and an always-on host so nudges still go out when the laptop is closed.
+- Small clean-up of the code, with 7 new tests (29 in total). We fixed four bugs. "In 2 days" and "in a week" were not understood, typing "done" with no nudge open was read as a new commitment called "Done", the done rate stopped counting after 50 nudges, and Later tapped after midnight skipped a whole day. Added what hosting needs: `WAZY_TZ` (Madrid by default, so times are right on a server in another time zone) and the platform's `PORT`. The server now rejects malformed requests instead of failing on them.
+- Our plan for the user test: buy a Twilio phone number for WhatsApp, and open an account with a host that keeps the code running online, because some testers will only try it if it is on their phone and always on. Then we connect the WhatsApp webhook and the Done / Later template to the same store, give each tester their own conversation, and tell them who processes their texts.

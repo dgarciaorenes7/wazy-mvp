@@ -27,9 +27,16 @@ WEEKDAYS = {
     "saturday": 5, "sabado": 5, "sábado": 5,
     "sunday": 6, "domingo": 6,
 }
+UNITS = {  # every word the rules accept after "in 2 ...", and how long one of it is
+    **dict.fromkeys(("second", "seconds", "sec", "secs", "segundo", "segundos", "s"), timedelta(seconds=1)),
+    **dict.fromkeys(("minute", "minutes", "min", "mins", "minuto", "minutos", "m"), timedelta(minutes=1)),
+    **dict.fromkeys(("hour", "hours", "hr", "hrs", "hora", "horas", "h"), timedelta(hours=1)),
+    **dict.fromkeys(("day", "days", "día", "días", "dia", "dias"), timedelta(days=1)),
+    **dict.fromkeys(("week", "weeks", "semana", "semanas"), timedelta(weeks=1)),
+}
 RELATIVE = re.compile(
-    r"\b(?:in|en|within|dentro de)\s+(\d+|a|an|un|una)\s*"
-    r"(seconds?|secs?|segundos?|s|minutes?|mins?|minutos?|m|hours?|hrs?|horas?|h)\b")
+    r"\b(?:in|en|within|dentro de)\s+(\d+|a|an|un|una)\s*("
+    + "|".join(sorted(map(re.escape, UNITS), key=len, reverse=True)) + r")\b")
 DAY_WORDS = [
     (re.compile(r"\b(?:day after tomorrow|pasado mañana|pasado manana)\b"), 2),
     (re.compile(r"\b(?:today|hoy)\b"), 0),
@@ -81,13 +88,10 @@ def _relative(low: str, now: datetime, spans: List[Tuple[int, int]]) -> Optional
         return None
     amount = match.group(1)
     amount = 1 if amount in ("a", "an", "un", "una") else int(amount)
-    unit = match.group(2)
-    if unit.startswith("s"):
-        delta = timedelta(seconds=amount)
-    elif unit.startswith("m"):
-        delta = timedelta(minutes=amount)
-    else:
-        delta = timedelta(hours=amount)
+    delta = UNITS[match.group(2)] * amount
+    if delta.days >= 1:            # "in 2 days" means that day at 10:00, not this exact minute
+        spans.append(match.span())
+        return datetime.combine(now.date() + delta, time(DEFAULT_HOUR, 0))
     spans.append(match.span())
     return now + delta
 

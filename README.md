@@ -42,7 +42,7 @@ wazy/
   store.py      SQLite tables, the conversation, and the scheduler (code decides when to nudge)
   server.py     standard-library HTTP server, access rules, JSON API
   static/       chat.html (the phone) and demo.html (the presenter view)
-tests/          22 unit tests: reading times, and the whole loop including Later, STOP and no reply
+tests/          29 unit tests: reading times, the whole loop including Later, STOP and no reply, and settings
 architecturedoc.md          architecture document, with the Session 6 log
 scope.md                    scope definition sheet
 Wazy MVP - Explainer.pdf    five-page explainer: what it tests, how it works, how to run it, security
@@ -69,7 +69,9 @@ Copy `.env.example` to `.env` to change them.
 | `ANTHROPIC_API_KEY` | empty | If set, Claude Haiku 4.5 tidies the title. Without it, the rules do everything. |
 | `WAZY_LATER_MINUTES` | empty | Empty: **Later** re-nudges next morning at 10:00. Set e.g. `1` for a live demo. |
 | `WAZY_ACCESS_CODE` | generated | Code a phone needs (min. 8 characters). Generated once and kept in the database if empty. |
-| `WAZY_PORT` | `8765` | Port on this computer. |
+| `WAZY_PORT` | `8765` | Port on this computer. If it is not set, `PORT` is used (hosting platforms set it). |
+| `WAZY_HOST` | `127.0.0.1` | Set `0.0.0.0` on a hosting platform so it accepts outside connections. |
+| `WAZY_TZ` | `Europe/Madrid` | The time zone every time is read in, so "tomorrow 9am" is right even on a server in another zone. |
 | `WAZY_DB` | `data/wazy.db` | Where the SQLite database lives. |
 
 ## Tests
@@ -86,9 +88,18 @@ python3 -m unittest discover tests
 - **Limits:** messages are cut to 300 characters; 30 messages a minute; message text is never written to the terminal.
 - **Privacy:** the first message tells the user where their texts go. Data stays in the local SQLite file.
 
+## Putting it online
+
+The code is ready for a host that keeps one process running (not a serverless one, because the scheduler loop has to stay awake):
+
+- start command `python3 -m wazy`, with `WAZY_HOST=0.0.0.0` (the port comes from `PORT`)
+- `WAZY_DB` on a persistent disk or volume, or the outcome log is lost on every deploy
+- a fixed `WAZY_ACCESS_CODE`, and then testers open `https://<your-address>/?k=<code>` once
+- the presenter view and reset only answer the machine itself, so on a host they are switched off by design
+
 ## Known limits (honest list)
 
 - It is a **web chat, not WhatsApp yet.** The old Twilio and Anthropic keys were rejected on the day, so the WhatsApp connection is the next step (see the explainer PDF).
 - **One conversation per server.** The two-week test with three users needs one link per person.
 - Nudges go out **only while the computer is awake**. The user test needs an always-on host.
-- It uses the computer's local time zone.
+- One time zone for everyone (`WAZY_TZ`, Madrid by default), which is fine for our testers.

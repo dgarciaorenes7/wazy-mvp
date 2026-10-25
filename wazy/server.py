@@ -126,13 +126,18 @@ def make_handler(store: Store, access_code: str):
             origin = self.headers.get("Origin")
             if origin and urlparse(origin).netloc != self.headers.get("Host"):
                 return self.reply(403, {"error": "cross-site request"})
-            length = int(self.headers.get("Content-Length") or 0)
-            if length > MAX_BODY:
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                return self.reply(400, {"error": "bad Content-Length"})
+            if length < 0 or length > MAX_BODY:
                 return self.reply(413, {"error": "too large"})
             try:
                 data = json.loads(self.rfile.read(length) or b"{}")
             except ValueError:
                 return self.reply(400, {"error": "bad JSON"})
+            if not isinstance(data, dict):
+                return self.reply(400, {"error": "send a JSON object"})
             path = urlparse(self.path).path
 
             if path == "/api/send":
@@ -149,7 +154,9 @@ def make_handler(store: Store, access_code: str):
                     commitment_id = int(data.get("commitment_id"))
                 except (TypeError, ValueError):
                     return self.reply(400, {"error": "commitment_id must be a number"})
-                ok = store.answer_nudge(commitment_id, "done" if data.get("action") == "done" else "later")
+                if data.get("action") not in ("done", "later"):
+                    return self.reply(400, {"error": "action must be done or later"})
+                ok = store.answer_nudge(commitment_id, data["action"])
                 return self.reply(200 if ok else 409, {"ok": ok})
             if path == "/api/reset" and self.is_local():
                 store.reset()
@@ -173,7 +180,8 @@ def main() -> None:
         config = Config()
     except ConfigError as error:
         raise SystemExit(f"[wazy] {error.code}")
-    store = Store(config.db_path, config.anthropic_api_key, config.ai_model, config.later_minutes)
+    store = Store(config.db_path, config.anthropic_api_key, config.ai_model, config.later_minutes,
+                  clock=config.clock())
     access_code = store.access_code(config.access_code)
     stop = threading.Event()
     threading.Thread(target=run_scheduler, args=(store, stop), daemon=True).start()
@@ -189,6 +197,7 @@ def main() -> None:
   Presenter view : http://127.0.0.1:{config.port}/demo
   Chat           : http://127.0.0.1:{config.port}/
   Reader         : {config.reader_name}
+  Time zone      : {config.timezone_name}
   "Later"        : one more nudge {later}
   Data           : {config.db_path}
   Phone access   : run `ngrok http {config.port}` (or ./run.sh --phone), then scan the QR code on /demo

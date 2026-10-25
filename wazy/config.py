@@ -7,9 +7,17 @@ variables always win over values in .env.
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from pathlib import Path
+from typing import Callable, Optional
+
+try:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+except ImportError:  # Python older than 3.9
+    ZoneInfo = None
 
 ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_TZ = "Europe/Madrid"   # our testers' time zone, so "tomorrow 9am" is right on any server
 
 
 def load_dotenv(path: Path = ROOT / ".env") -> None:
@@ -35,7 +43,10 @@ class Config:
         load_dotenv()
         env = os.environ.get
         self.host = env("WAZY_HOST", "127.0.0.1")
-        self.port = self._int("WAZY_PORT", env("WAZY_PORT", "8765"), 1, 65535)
+        # WAZY_PORT wins; otherwise PORT, which hosting platforms set for you.
+        port_name = "WAZY_PORT" if env("WAZY_PORT") else ("PORT" if env("PORT") else "WAZY_PORT")
+        self.port = self._int(port_name, env(port_name, "8765"), 1, 65535)
+        self.timezone = self._timezone(env("WAZY_TZ", "").strip())
         self.db_path = env("WAZY_DB", str(ROOT / "data" / "wazy.db"))
         self.anthropic_api_key = env("ANTHROPIC_API_KEY", "").strip()
         self.ai_model = env("WAZY_AI_MODEL", "claude-haiku-4-5-20251001")
@@ -56,6 +67,31 @@ class Config:
         if not low <= number <= high:
             raise ConfigError(f"{name} must be between {low} and {high}. Refusing to start.")
         return number
+
+    @staticmethod
+    def _timezone(name: str):
+        """The zone every time is read and stored in. A wrong WAZY_TZ stops the server (fail closed)."""
+        if ZoneInfo is None:
+            if name:
+                raise ConfigError("WAZY_TZ needs Python 3.9 or newer. Refusing to start.")
+            return None
+        try:
+            return ZoneInfo(name or DEFAULT_TZ)
+        except (ZoneInfoNotFoundError, ValueError):
+            if name:
+                raise ConfigError(f"WAZY_TZ={name} is not a time zone, e.g. Europe/Madrid. Refusing to start.")
+            return None         # no time zone data on this computer: use its local time
+
+    @property
+    def timezone_name(self) -> str:
+        return str(self.timezone) if self.timezone else "this computer's local time"
+
+    def clock(self) -> Callable[[], datetime]:
+        """Now, in the chosen zone, as the plain local time the database stores."""
+        zone = self.timezone
+        if zone is None:
+            return lambda: datetime.now().replace(microsecond=0)
+        return lambda: datetime.now(zone).replace(tzinfo=None, microsecond=0)
 
     @property
     def reader_name(self) -> str:
