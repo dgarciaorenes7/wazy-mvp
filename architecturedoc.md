@@ -63,3 +63,9 @@ Session 6 (13 Oct, hackathon):
 - Cut to protect the goal: WhatsApp/Twilio, the phone allow-list, the AI reader on by default, per-person links, an always-on host.
 - After class: code split into modules, 22 tests added, README and run script, no secrets in the package, "Later" set to the agreed rule (one more nudge next morning at 10:00; in class it was 60 minutes).
 - Before the user test: rotate the Twilio and Anthropic keys and set spending caps; connect the Twilio WhatsApp webhook and template to the same store; one link (or allow-listed number) per tester; move to an always-on host; tell testers who processes their texts.
+
+Session 6 follow-up (25 Oct):
+- We created this repository on GitHub. We didn't have one on 13 Oct and handed the build in as a zip (`wazy-mvp-Andrea-David.zip`), so the first commit is that zip unchanged, which is the end-of-class version plus the after-class clean-up above. The code hasn't changed since.
+- The Session 5 defence runs. On 25 Oct I ran the full loop (three commitments, four nudges, one Later that came back as a second nudge) and it left four rows in `nudge_outcomes` with the outcome and the seconds to respond. The screenshot is in `docs/`. This was our own run, not a user.
+- No outside users yet. 19 to 23 Oct was midterm week and none of the students we asked wanted to try it during exams, so testing with users starts on Mon 26 Oct.
+- Still open before the test can measure Guess 1 properly: WhatsApp (rotated keys, the webhook and the Done / Later template), one link or allow-listed number for each tester, and an always-on host so nudges still go out when the laptop is closed.
