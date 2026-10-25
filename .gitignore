@@ -1,0 +1,9 @@
+# secrets and local data never leave this computer
+.env
+data/
+*.db
+*.db-shm
+*.db-wal
+__pycache__/
+*.pyc
+.DS_Store

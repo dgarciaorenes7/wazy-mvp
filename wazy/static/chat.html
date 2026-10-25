@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0E3B2E">
+<title>Wazy</title>
+<style>
+  :root { --g:#0E3B2E; --g2:#1F7A55; --bg:#EFEAE2; --me:#D9FDD3; --ink:#111B21; --mut:#667781; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; }
+  body { font:16px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink);
+         display:flex; flex-direction:column; height:100vh; height:100dvh; }
+  header { background:var(--g); color:#fff; padding:calc(12px + env(safe-area-inset-top)) 14px 12px; display:flex; align-items:center; gap:10px; flex:none; }
+  body.framed header { padding-top:46px; }
+  .avatar { width:38px; height:38px; border-radius:50%; background:#fff; color:var(--g); display:grid; place-items:center; font-weight:800; font-size:18px; }
+  .name { font-weight:650; } .status { font-size:12px; opacity:.8; }
+  #log { flex:1; overflow-y:auto; padding:12px 10px 8px; display:flex; flex-direction:column; gap:6px; }
+  .msg { max-width:84%; padding:7px 10px 5px; border-radius:10px; box-shadow:0 1px .5px rgba(0,0,0,.13); white-space:pre-wrap; overflow-wrap:anywhere; }
+  .user { align-self:flex-end; background:var(--me); border-top-right-radius:3px; }
+  .bot { align-self:flex-start; background:#fff; border-top-left-radius:3px; }
+  .time { font-size:11px; color:var(--mut); text-align:right; margin-top:2px; }
+  .nudge { border-left:4px solid var(--g2); font-weight:600; }
+  .buttons { display:flex; gap:6px; margin-top:8px; }
+  .buttons button { flex:1; border:0; border-radius:8px; padding:10px 0; font:inherit; font-weight:650; font-size:15px; cursor:pointer; }
+  .done { background:var(--g2); color:#fff; } .later { background:#F0F2F5; color:var(--g); }
+  .buttons.closed { opacity:.4; pointer-events:none; }
+  #examples { display:flex; gap:6px; overflow-x:auto; padding:0 10px 8px; flex:none; }
+  #examples button { flex:none; border:1px solid #cfd8d3; background:#fff; border-radius:16px; padding:6px 11px; font:inherit; font-size:13px; color:var(--g); cursor:pointer; }
+  body.framed #examples button { font-size:12px; }
+  form { display:flex; gap:8px; padding:8px 10px calc(8px + env(safe-area-inset-bottom)); background:#F0F2F5; flex:none; }
+  input { flex:1; min-width:0; border:0; border-radius:22px; padding:11px 15px; font:inherit; font-size:16px; outline:none; }
+  form button { width:44px; height:44px; border-radius:50%; border:0; background:var(--g2); color:#fff; font-size:18px; cursor:pointer; flex:none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="avatar">W</div>
+  <div><div class="name">Wazy</div><div class="status" id="status">online</div></div>
+</header>
+<div id="log" aria-live="polite"></div>
+<div id="examples"></div>
+<form id="composer" autocomplete="off">
+  <input id="text" placeholder="Text a commitment…" maxlength="300" enterkeyhint="send" aria-label="Message">
+  <button aria-label="Send">➤</button>
+</form>
+<script>
+  // Inside the presenter view the chat sits in a phone frame: leave room for the camera notch.
+  if (window.self !== window.top) document.body.classList.add('framed');
+
+  const log = document.getElementById('log'), input = document.getElementById('text'), status = document.getElementById('status');
+  const EXAMPLES = ['Send Marta the slides in 30 seconds', 'Call the bank tomorrow 9am', 'Reply to Carlos by Thursday', 'Pay rent in 2 minutes'];
+  EXAMPLES.forEach(example => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = example;
+    b.onclick = () => { input.value = example; input.focus(); };
+    document.getElementById('examples').appendChild(b);
+  });
+
+  let signature = '', shown = 0;
+  function render(state) {
+    const last = state.messages.length ? state.messages[state.messages.length - 1].id : 0;
+    const next = JSON.stringify([state.messages.length, last, state.open]);
+    if (next === signature) return;
+    signature = next;
+    log.innerHTML = '';
+    for (const m of state.messages) {              // all text goes in with textContent: nothing is parsed as HTML
+      const bubble = document.createElement('div');
+      bubble.className = 'msg ' + (m.role === 'user' ? 'user' : 'bot') + (m.kind === 'nudge' ? ' nudge' : '');
+      const body = document.createElement('div'); body.textContent = m.text; bubble.appendChild(body);
+      if (m.kind === 'nudge') {
+        const row = document.createElement('div');
+        row.className = 'buttons' + (state.open.includes(m.id) ? '' : ' closed');
+        [['done', '✓ Done'], ['later', 'Later']].forEach(([action, label]) => {
+          const b = document.createElement('button'); b.className = action; b.textContent = label;
+          b.onclick = () => answer(m.commitment_id, action); row.appendChild(b);
+        });
+        bubble.appendChild(row);
+      }
+      const t = document.createElement('div'); t.className = 'time'; t.textContent = (m.created_at || '').slice(11, 16);
+      bubble.appendChild(t);
+      log.appendChild(bubble);
+    }
+    if (state.messages.length > shown) {
+      const newest = state.messages[state.messages.length - 1];
+      if (shown && newest.kind === 'nudge' && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      log.scrollTop = log.scrollHeight;
+    }
+    shown = state.messages.length;
+  }
+
+  async function post(path, data) {
+    return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  }
+  async function refresh() {
+    try { const r = await fetch('api/state', { cache: 'no-store' }); if (r.ok) render(await r.json()); } catch (e) {}
+  }
+  async function answer(commitment_id, action) { await post('api/answer', { commitment_id, action }); refresh(); }
+
+  document.getElementById('composer').onsubmit = async event => {
+    event.preventDefault();
+    const text = input.value.trim(); if (!text) return;
+    input.value = ''; status.textContent = 'typing…';
+    try { await post('api/send', { text }); } catch (e) {}
+    status.textContent = 'online'; refresh();
+  };
+  refresh(); setInterval(refresh, 1500);
+</script>
+</body>
+</html>

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wazy · Live MVP</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400..700&family=Instrument+Serif:ital@0;1&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root { --dk:#0E2A22; --g:#1F7A55; --mint:#7FD1A8; --bg:#F6F4EE; --card:#FDFCF9; --line:#E3E0D8; --ink:#10241D; --mut:#5E6E67; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; min-height:100%; }
+  body { font-family:"DM Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased; }
+  .wrap { min-height:100vh; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:80px; align-items:center; max-width:1320px; margin:0 auto; padding:36px 64px; }
+  .brand { display:flex; align-items:center; gap:12px; margin-bottom:30px; }
+  .logo { width:40px; height:40px; border-radius:12px; background:var(--dk); color:var(--mint); display:grid; place-items:center; font-weight:700; font-size:20px; }
+  .brand b { font-size:21px; letter-spacing:-.01em; }
+  .live { margin-left:6px; display:inline-flex; align-items:center; gap:7px; font-size:11.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--g); background:#E1F1E8; padding:6px 11px; border-radius:999px; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--g); animation:pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity:.25; } }
+  h1 { font-size:54px; line-height:1.04; letter-spacing:-.035em; margin:0 0 16px; font-weight:700; max-width:640px; }
+  h1 em { font-family:"Instrument Serif",Georgia,serif; font-weight:400; font-style:italic; color:var(--g); letter-spacing:-.01em; }
+  .lede { font-size:19px; line-height:1.5; color:var(--mut); margin:0 0 38px; max-width:580px; }
+  .steps { display:grid; grid-template-columns:repeat(4,1fr); margin-bottom:34px; }
+  .step { position:relative; padding-top:46px; }
+  .step::before { content:""; position:absolute; top:15px; left:0; right:0; height:2px; background:var(--line); transition:background .4s; }
+  .step:first-child::before { left:16px; } .step:last-child::before { right:calc(100% - 16px); }
+  .step .n { position:absolute; top:0; left:0; width:32px; height:32px; border-radius:50%; background:var(--card); border:2px solid var(--line);
+             display:grid; place-items:center; font-size:13px; font-weight:700; color:var(--mut); transition:all .35s; }
+  .step .t { font-weight:700; font-size:16px; }
+  .step .s { font-size:14px; line-height:1.35; color:var(--mut); margin-top:4px; min-height:38px; padding-right:14px; }
+  .step.done .n { background:var(--g); border-color:var(--g); color:#fff; }
+  .step.done::before { background:var(--g); }
+  .step.active .n { border-color:var(--g); color:var(--g); box-shadow:0 0 0 6px rgba(31,122,85,.13); }
+  .step.active .s { color:var(--g); font-weight:600; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:20px; padding:20px 24px 8px; margin-bottom:26px; box-shadow:0 1px 2px rgba(16,36,29,.04); }
+  .panel-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px; }
+  .panel-head h2 { font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--mut); margin:0; font-weight:700; }
+  .panel-head code { font:12px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--mut); }
+  .row { display:grid; grid-template-columns:1fr auto auto; gap:18px; align-items:center; padding:13px 0; border-top:1px solid var(--line); }
+  #outcomes .row:first-child { border-top:0; }
+  .row .title { font-weight:600; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .when { font-size:13px; color:var(--mut); font-variant-numeric:tabular-nums; }
+  .pill { font-size:12px; font-weight:700; padding:4px 10px; border-radius:999px; white-space:nowrap; }
+  .p-done { background:#DCF3E6; color:#0B6B43; } .p-later { background:#FDEBD3; color:#9A3412; } .p-pending { background:#E6EEF9; color:#1E4E8C; }
+  .p-stop, .p-no_reply { background:#FBE1DE; color:#A61B1B; }
+  .empty { padding:12px 0 16px; color:var(--mut); font-size:15px; }
+  .foot { display:flex; align-items:center; gap:18px; }
+  #qr { background:#fff; padding:8px; border-radius:14px; border:1px solid var(--line); width:106px; height:106px; display:none; place-items:center; }
+  #qr.on { display:grid; }
+  #qr img, #qr canvas { width:88px !important; height:88px !important; }
+  .qr-text b { display:block; font-size:16px; } .qr-text span { font-size:14px; color:var(--mut); }
+  .phone { position:relative; width:360px; height:min(760px, calc(100vh - 72px)); min-height:600px; border-radius:58px; background:#121212; padding:12px;
+           box-shadow:0 0 0 2px #2b2b2b inset, 0 40px 80px -30px rgba(14,42,34,.45), 0 18px 36px -18px rgba(0,0,0,.35); }
+  .phone::after { content:""; position:absolute; top:24px; left:50%; transform:translateX(-50%); width:100px; height:28px; border-radius:20px; background:#121212; }
+  .phone iframe { width:100%; height:100%; border:0; border-radius:46px; background:#EFEAE2; display:block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <main>
+    <div class="brand"><div class="logo">W</div><b>Wazy</b><span class="live"><span class="dot"></span>Live MVP</span></div>
+    <h1>One commitment. <em>One nudge.</em> One recorded outcome.</h1>
+    <p class="lede">Text Wazy a small commitment in your own words. It confirms when it will nudge you, sends a single nudge with Done or Later, and logs what happened.</p>
+    <div class="steps">
+      <div class="step" id="s1"><div class="n">1</div><div class="t">Text it</div><div class="s"></div></div>
+      <div class="step" id="s2"><div class="n">2</div><div class="t">Confirmed</div><div class="s"></div></div>
+      <div class="step" id="s3"><div class="n">3</div><div class="t">Nudge</div><div class="s"></div></div>
+      <div class="step" id="s4"><div class="n">4</div><div class="t">Outcome</div><div class="s"></div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Outcome log</h2><code>nudge_outcomes</code></div>
+      <div id="outcomes"></div>
+    </div>
+    <div class="foot"><div id="qr"></div><div class="qr-text"><b>Try it on your phone</b><span id="qr-hint">Start with ./run.sh --phone to get a QR code</span></div></div>
+  </main>
+  <div class="phone"><iframe src="/" title="Wazy chat"></iframe></div>
+</div>
+<script>
+  const $ = id => document.getElementById(id);
+  const LABEL = { done: 'Done', later: 'Later', pending: 'Waiting', stop: 'Stopped', no_reply: 'No reply' };
+  let state = null;
+
+  const seconds = s => s == null ? '' : (s < 90 ? s + ' s' : Math.round(s / 60) + ' min');
+  const clock = iso => iso ? iso.slice(11, 16) : '';
+  function day(iso) {
+    const d = new Date(iso), today = new Date(), tomorrow = new Date(); tomorrow.setDate(today.getDate() + 1);
+    if (d.toDateString() === today.toDateString()) return 'today at ' + clock(iso);
+    if (d.toDateString() === tomorrow.toDateString()) return 'tomorrow at ' + clock(iso);
+    return d.toLocaleDateString('en-GB', { weekday: 'long' }) + ' at ' + clock(iso);
+  }
+  function step(i, cls, text) { const e = $('s' + i); e.className = 'step ' + cls; e.querySelector('.s').textContent = text; }
+
+  // The four steps follow the most recent commitment, with a live countdown to its nudge.
+  function steps() {
+    if (!state) return;
+    const c = state.commitments[0];
+    if (!c) { step(1, 'active', 'Waiting for a text…'); step(2, '', ''); step(3, '', ''); step(4, '', ''); return; }
+    const o = state.outcomes.find(x => x.commitment_id === c.id);
+    step(1, 'done', '“' + c.title + '”');
+    step(2, 'done', 'Nudge set for ' + day(c.nudge_at));
+    if (c.status === 'scheduled') {
+      const left = Math.round((new Date(c.nudge_at) - Date.now()) / 1000);
+      step(3, 'active', left > 0 && left <= 180 ? 'Arrives in ' + left + ' s' : 'Scheduled');
+      step(4, '', '');
+    } else if (c.status === 'nudged') {
+      step(3, 'done', 'Sent at ' + clock(o && o.nudged_at));
+      step(4, 'active', 'Waiting for Done or Later');
+    } else {
+      step(3, 'done', 'Sent at ' + clock(o && o.nudged_at));
+      step(4, 'done', o ? LABEL[o.outcome] + (o.seconds_to_respond != null ? ', ' + seconds(o.seconds_to_respond) + ' after the nudge' : '') : (LABEL[c.status] || c.status));
+    }
+  }
+
+  function outcomes() {
+    const list = $('outcomes'); list.innerHTML = '';
+    const rows = state.outcomes.slice(0, 3);
+    if (!rows.length) {
+      const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'No nudges yet. Every Done or Later will appear here.';
+      list.appendChild(e); return;
+    }
+    for (const o of rows) {
+      const row = document.createElement('div'); row.className = 'row';
+      const title = document.createElement('div'); title.className = 'title'; title.textContent = o.title;
+      const when = document.createElement('div'); when.className = 'when';
+      when.textContent = o.outcome === 'pending' ? 'nudged ' + o.nudged_at.slice(11, 19) : seconds(o.seconds_to_respond) + ' after nudge';
+      const pill = document.createElement('span'); pill.className = 'pill p-' + o.outcome; pill.textContent = LABEL[o.outcome] || o.outcome;
+      row.append(title, when, pill); list.appendChild(row);
+    }
+  }
+
+  async function refresh() {
+    try { state = await (await fetch('/api/state', { cache: 'no-store' })).json(); outcomes(); steps(); } catch (e) {}
+  }
+  let qrShown = false;
+  async function qr() {
+    if (qrShown || !window.QRCode) return;
+    try {
+      const link = (await (await fetch('/api/link')).json()).url;
+      if (link) {
+        $('qr').classList.add('on');
+        new QRCode($('qr'), { text: link, width: 176, height: 176, colorDark: '#0E2A22', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
+        $('qr-hint').textContent = 'Scan to open the chat'; qrShown = true;
+      }
+    } catch (e) {}
+  }
+  // Shift+R clears the demo (this computer only).
+  document.addEventListener('keydown', async e => {
+    if (e.shiftKey && e.key === 'R') {
+      await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      location.reload();
+    }
+  });
+  refresh(); qr(); setInterval(refresh, 1000); setInterval(steps, 250); setInterval(qr, 3000);
+</script>
+</body>
+</html>
