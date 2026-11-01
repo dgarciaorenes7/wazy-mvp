@@ -45,6 +45,9 @@
   .p-done { background:#DCF3E6; color:#0B6B43; } .p-later { background:#FDEBD3; color:#9A3412; } .p-pending { background:#E6EEF9; color:#1E4E8C; }
   .p-stop, .p-no_reply { background:#FBE1DE; color:#A61B1B; }
   .empty { padding:12px 0 16px; color:var(--mut); font-size:15px; }
+  #learning .row:first-child { border-top:0; }
+  .p-asked { background:#E6EEF9; color:#1E4E8C; } .p-approved { background:#DCF3E6; color:#0B6B43; }
+  .p-rejected, .p-forgotten { background:#FBE1DE; color:#A61B1B; } .p-paused, .p-resumed { background:#EEE; color:#444; }
   .foot { display:flex; align-items:center; gap:18px; }
   #qr { background:#fff; padding:8px; border-radius:14px; border:1px solid var(--line); width:106px; height:106px; display:none; place-items:center; }
   #qr.on { display:grid; }
@@ -71,6 +74,10 @@
     <div class="panel">
       <div class="panel-head"><h2>Outcome log</h2><code>nudge_outcomes</code></div>
       <div id="outcomes"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Learning log</h2><code id="learn-stats">learning_log</code></div>
+      <div id="learning"></div>
     </div>
     <div class="foot"><div id="qr"></div><div class="qr-text"><b>Try it on your phone</b><span id="qr-hint">Start with ./run.sh --phone to get a QR code</span></div></div>
   </main>
@@ -129,8 +136,30 @@
     }
   }
 
+  const EVENT = { asked: 'Asked', approved: 'Approved', rejected: 'Said no', forgotten: 'Forgotten', paused: 'Paused', resumed: 'Resumed' };
+  const hh = h => h == null ? '–' : String(h).padStart(2, '0') + ':00';
+  function learning() {
+    const list = $('learning'); if (!list) return; list.innerHTML = '';
+    const st = state.stats || {};
+    $('learn-stats').textContent = 'first-nudge Done ' + (st.first_nudge_done_rate == null ? '–' : st.first_nudge_done_rate + '%') +
+      ' · default ' + hh(st.learned_hour || 10);
+    const rows = (state.learning_log || []).slice(0, 3);
+    if (!rows.length) {
+      const e = document.createElement('div'); e.className = 'empty';
+      e.textContent = 'Nothing learned yet. Wazy asks before changing your default nudge time.';
+      list.appendChild(e); return;
+    }
+    for (const r of rows) {
+      const row = document.createElement('div'); row.className = 'row';
+      const title = document.createElement('div'); title.className = 'title'; title.textContent = 'Default hour ' + hh(r.old_hour) + ' → ' + hh(r.new_hour);
+      const when = document.createElement('div'); when.className = 'when'; when.textContent = r.created_at.slice(5, 16).replace('T', ' ');
+      const pill = document.createElement('span'); pill.className = 'pill p-' + r.event; pill.textContent = EVENT[r.event] || r.event;
+      row.append(title, when, pill); list.appendChild(row);
+    }
+  }
+
   async function refresh() {
-    try { state = await (await fetch('/api/state', { cache: 'no-store' })).json(); outcomes(); steps(); } catch (e) {}
+    try { state = await (await fetch('/api/state', { cache: 'no-store' })).json(); outcomes(); learning(); steps(); } catch (e) {}
   }
   let qrShown = false;
   async function qr() {

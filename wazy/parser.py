@@ -34,9 +34,27 @@ UNITS = {  # every word the rules accept after "in 2 ...", and how long one of i
     **dict.fromkeys(("day", "days", "día", "días", "dia", "dias"), timedelta(days=1)),
     **dict.fromkeys(("week", "weeks", "semana", "semanas"), timedelta(weeks=1)),
 }
+NUMBER_WORDS = {  # "in one hour", "en dos horas": numbers written as words
+    "a": 1, "an": 1, "un": 1, "una": 1, "one": 1, "uno": 1, "two": 2, "dos": 2, "three": 3, "tres": 3,
+    "four": 4, "cuatro": 4, "five": 5, "cinco": 5, "six": 6, "seis": 6, "seven": 7, "siete": 7,
+    "eight": 8, "ocho": 8, "nine": 9, "nueve": 9, "ten": 10, "diez": 10, "eleven": 11, "once": 11,
+    "twelve": 12, "doce": 12,
+}
 RELATIVE = re.compile(
-    r"\b(?:in|en|within|dentro de)\s+(\d+|a|an|un|una)\s*("
+    r"\b(?:in|en|within|dentro de)\s+(\d+|" + "|".join(sorted(NUMBER_WORDS, key=len, reverse=True)) + r")\s*("
     + "|".join(sorted(map(re.escape, UNITS), key=len, reverse=True)) + r")\b")
+HALF_HOUR = re.compile(r"\b(?:in|en|within|dentro de)\s+(?:half an hour|a half hour|media hora)\b")
+MONTHS = {
+    "january": 1, "jan": 1, "enero": 1, "february": 2, "feb": 2, "febrero": 2, "march": 3, "mar": 3,
+    "marzo": 3, "april": 4, "apr": 4, "abril": 4, "may": 5, "mayo": 5, "june": 6, "jun": 6, "junio": 6,
+    "july": 7, "jul": 7, "julio": 7, "august": 8, "aug": 8, "agosto": 8, "september": 9, "sept": 9,
+    "sep": 9, "septiembre": 9, "setiembre": 9, "october": 10, "oct": 10, "octubre": 10,
+    "november": 11, "nov": 11, "noviembre": 11, "december": 12, "dec": 12, "diciembre": 12,
+}
+_MONTH = "(" + "|".join(sorted(MONTHS, key=len, reverse=True)) + r")"
+DATE_DAY_MONTH = re.compile(r"\b(?:on\s+|el\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+|de\s+)?" + _MONTH + r"\b")
+DATE_MONTH_DAY = re.compile(r"\b(?:on\s+)?" + _MONTH + r"\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\b(?!\s*(?::|am|pm|h\b))")
+DATE_DAY_ONLY = re.compile(r"\b(?:on\s+the|the|el\s+d[ií]a)\s+(\d{1,2})(?:st|nd|rd|th)?\b(?!\s*(?::|am|pm|h\b|minutes|minutos|hours|horas|days|d[ií]as))")
 DAY_WORDS = [
     (re.compile(r"\b(?:day after tomorrow|pasado mañana|pasado manana)\b"), 2),
     (re.compile(r"\b(?:today|hoy)\b"), 0),
@@ -68,11 +86,50 @@ TRAILING_WORDS = {"by", "on", "at", "in", "for", "before", "this", "next", "the"
 LEADING_WORDS = {"to", "que", "and", "y", "on", "by"}
 
 
+# Messages that are not a new commitment: questions about the list and edits to an earlier one.
+# The MVP only takes new commitments, so these get a short explanation instead of a wrong nudge.
+QUESTION = re.compile(
+    r"^(?:what|when|where|who|why|how|which|do i|did i|is there|are there|can you|could you|"
+    r"qu[eé]|cu[aá]ndo|d[oó]nde|qui[eé]n|por qu[eé]|c[oó]mo|tengo algo)\b|\?\s*$", re.I)
+EDIT = re.compile(
+    r"^(?:no,?\s+|don'?t\s+|dont\s+)?(?:change|move|cancel|delete|remove|eliminate|update|edit|put|rename|"
+    r"cambia|mueve|cancela|borra|elimina)\s+(?:it|that|this|them|the\s+(?:date|time|name|reminder|event|meeting)|"
+    r"lo|la|eso|la\s+(?:fecha|hora))\b|^(?:add|a[nñ]ade)\s+(?:that|the|ese|el)\s+(?:same|mismo)\b", re.I)
+
+
+def not_a_commitment(text: str) -> bool:
+    """True for a question or an edit to an earlier commitment (added 1 Nov 2026 after the replay)."""
+    return bool(QUESTION.search(text.strip()) or EDIT.search(text.strip()))
+
+
+DEADLINE_WORDS = re.compile(r"\b(?:by|before|until|no later than|antes de|para el|para el d[ií]a|hasta)\b", re.I)
+
+
+def time_was_stated(text: str) -> bool:
+    """True if the person gave a time of day or a delay ("at 9", "in 2 hours", "tonight").
+    False when they only gave a day ("Thursday", "tomorrow"), so the hour was Wazy's default.
+    Only defaulted hours may ever be changed by what Wazy learns."""
+    low = text.lower()
+    if HALF_HOUR.search(low) or RELATIVE.search(low):
+        match = RELATIVE.search(low)
+        if HALF_HOUR.search(low) or (match and UNITS[match.group(2)] < timedelta(days=1)):
+            return True
+    if any(pattern.search(low) for pattern, _ in CLOCK_TIMES):
+        return True
+    return any(pattern.search(low) for pattern, _, _ in PARTS_OF_DAY)
+
+
+def is_deadline(text: str) -> bool:
+    """'by Thursday' is a deadline: a learned hour may move that nudge earlier, never later."""
+    return bool(DEADLINE_WORDS.search(text))
+
+
 @dataclass
 class Reading:
     title: str
     when: Optional[datetime]
     reader: str = "rules"
+    time_stated: bool = True
 
 
 def checked(when: Optional[datetime], now: datetime) -> Optional[datetime]:
@@ -83,11 +140,15 @@ def checked(when: Optional[datetime], now: datetime) -> Optional[datetime]:
 
 
 def _relative(low: str, now: datetime, spans: List[Tuple[int, int]]) -> Optional[datetime]:
+    half = HALF_HOUR.search(low)
+    if half:
+        spans.append(half.span())
+        return now + timedelta(minutes=30)
     match = RELATIVE.search(low)
     if not match:
         return None
     amount = match.group(1)
-    amount = 1 if amount in ("a", "an", "un", "una") else int(amount)
+    amount = NUMBER_WORDS[amount] if amount in NUMBER_WORDS else int(amount)
     delta = UNITS[match.group(2)] * amount
     if delta.days >= 1:            # "in 2 days" means that day at 10:00, not this exact minute
         spans.append(match.span())
@@ -96,7 +157,45 @@ def _relative(low: str, now: datetime, spans: List[Tuple[int, int]]) -> Optional
     return now + delta
 
 
+def _calendar_date(day: int, month: Optional[int], today: date) -> Optional[date]:
+    """A date written out ("30 April", "on the 22nd"): the next time that date comes round."""
+    for step in range(13):
+        year, mon = today.year, month or today.month
+        if month is None:
+            mon = today.month + step
+            year += (mon - 1) // 12
+            mon = (mon - 1) % 12 + 1
+        elif step:
+            year += step
+        try:
+            found = date(year, mon, day)
+        except ValueError:
+            if month is not None and step == 0:
+                return None        # "April 31" does not exist: ask instead of guessing
+            continue
+        if found >= today:
+            return found
+        if month is not None and step >= 1:
+            return None
+    return None
+
+
 def _day(low: str, today: date, spans: List[Tuple[int, int]]) -> Tuple[Optional[date], Optional[str]]:
+    for pattern in (DATE_DAY_MONTH, DATE_MONTH_DAY):
+        match = pattern.search(low)
+        if match:
+            a, b = match.group(1), match.group(2)
+            day_s, month_s = (a, b) if a.isdigit() else (b, a)
+            found = _calendar_date(int(day_s), MONTHS[month_s], today)
+            if found is not None:
+                spans.append(match.span())
+                return found, "date"
+    match = DATE_DAY_ONLY.search(low)
+    if match:
+        found = _calendar_date(int(match.group(1)), None, today)
+        if found is not None:
+            spans.append(match.span())
+            return found, "date"
     for pattern, offset in DAY_WORDS:
         match = pattern.search(low)
         if match:
@@ -209,6 +308,7 @@ def read_with_ai(text: str, now: datetime, api_key: str, model: str) -> Optional
 
 def read_commitment(text: str, now: datetime, api_key: str = "", model: str = "") -> Reading:
     title, when = parse_rules(text, now)
+    stated = when is None or time_was_stated(text)
     reader = "rules"
     if api_key:
         ai = read_with_ai(text, now, api_key, model)
@@ -217,5 +317,5 @@ def read_commitment(text: str, now: datetime, api_key: str = "", model: str = ""
             if ai[0]:
                 title = ai[0]
             if when is None:
-                when = ai[1]
-    return Reading(title, when, reader)
+                when, stated = ai[1], True
+    return Reading(title, when, reader, stated)

@@ -10,13 +10,14 @@ The three to five main rules this project follows.
 - One commitment → one nudge → one recorded outcome (done / later / no reply in 24 h / stop). Every nudge is logged in `nudge_outcomes`.
 - Nothing is deleted or changed in bulk without the user asking for it (the only bulk action is STOP, typed by the user).
 - Fail closed: a setting that is present but wrong stops the server from starting. When WhatsApp is reconnected, missing Twilio or Anthropic keys must stop it too.
+- Learning asks first (Session 7). Wazy may suggest a better default nudge hour from how a person answers nudges, but nothing changes until that person replies YES. Times the person stated are never changed, and a learned hour can only move a deadline earlier. Every proposal and answer is a row in `learning_log`.
 
 ## Stack and key dependencies
 The technology we are using, and why. As built on 13 Oct:
 - Python 3.9+ standard library only (`http.server`, `sqlite3`, `threading`): a new, separate slice of about 800 lines of Python in `mvp/`, instead of switching features off inside the old 4,000-line Flask app. It runs on any Mac with nothing to install, and every line can be explained.
 - Reading a commitment: rules in code turn the user's words into a time (English and Spanish). Claude Haiku 4.5 is optional and only tidies the title (~€0.001 per message when switched on).
 - Scheduler: a one-second loop inside the server sends due nudges and closes unanswered ones after 24 h (replaces APScheduler).
-- Storage: SQLite with three tables: `commitments`, `nudge_outcomes`, `messages`.
+- Storage: SQLite with three tables: `commitments`, `nudge_outcomes`, `messages`. Since Session 7 also `learning_log` (every proposal, YES, NO and "forget") and `reader_misses` (messages whose time the rules missed, plus the reply that fixed it), and `commitments.time_source` (stated, default or learned).
 - Screen: a WhatsApp-style web chat. Phones reach the laptop through an ngrok tunnel and need an access code (QR link, then an HttpOnly cookie).
 - Target for the user test (plan unchanged): Twilio WhatsApp Business number + a Content Template with Done / Later quick replies, on an always-on host.
 
@@ -31,12 +32,14 @@ The technology we are deliberately NOT using, and why.
 
 ## Tradeoffs consciously accepted
 What we are choosing to ignore or do poorly on purpose, and what we gain by doing that.
-- A separate slice instead of an MVP_MODE switch in the old app: small, safe and testable (29 tests since 25 Oct), but WhatsApp, templates and the phone allow-list must be wired into it before the user test.
+- A separate slice instead of an MVP_MODE switch in the old app: small, safe and testable (44 tests since 1 Nov), but WhatsApp, templates and the phone allow-list must be wired into it before the user test.
 - An access code instead of a phone allow-list: only people we give the QR link to can reach it, but there is one conversation per server, so one tester per server until per-person links exist.
 - Rule-based reading: free, fast and predictable, but it only understands the phrasings we wrote rules for. The AI reader is there for the rest.
 - State lives in SQLite, so a restart loses nothing; only the message rate limit is in memory.
 - No payments, no analytics tool: outcomes are read straight from `nudge_outcomes`.
 - Laptop hosting for the hackathon: no cost and nothing to deploy, but nudges only go out while the laptop is awake and the ngrok address changes every run.
+- The learning rule is a fixed, readable rule (counts and thresholds in `store.py`), not a trained model: anyone can explain exactly what changed and why, but it only learns one thing (the default hour) and needs at least six answered nudges before it can say anything.
+- Asking before applying costs one extra message per person per change, and an extra message is exactly what could feel naggy (Guess 1). We cap it at one question per two weeks.
 
 ## Open assumptions
 Things we are guessing but have not proven yet.
@@ -47,6 +50,8 @@ Things we are guessing but have not proven yet.
 - One nudge per commitment is enough.
 - A web chat is not a fair stand-in for WhatsApp: the user test still needs WhatsApp to measure Guess 1 properly.
 - The Twilio number and templates still work: unproven. The keys on the laptop were rejected on 13 Oct, so rotating them is now a precondition for the test.
+- Meta allows Wazy on the WhatsApp Business API. Since 15 Jan 2026 its terms ban general-purpose AI chatbots and allow AI that is ancillary to a business service such as notifications. Wazy reads times with rules and the AI is optional, so we believe it counts as a reminders service, but that is our reading, not Meta's decision.
+- People want to send commitments by voice. We cut voice ("nobody has asked for it"), but 40 of the 179 messages David sent the old Wazy were voice notes.
 
 ## Session log
 Session 4: The choices made and new guesses added today.
@@ -70,3 +75,12 @@ Session 6 follow-up (25 Oct):
 - No outside users yet. 19 to 23 Oct was midterm week and none of the students we asked wanted to try it during exams, so testing with users starts on Mon 26 Oct.
 - Small clean-up of the code, with 7 new tests (29 in total). We fixed four bugs. "In 2 days" and "in a week" were not understood, typing "done" with no nudge open was read as a new commitment called "Done", the done rate stopped counting after 50 nudges, and Later tapped after midnight skipped a whole day. Added what hosting needs: `WAZY_TZ` (Madrid by default, so times are right on a server in another time zone) and the platform's `PORT`. The server now rejects malformed requests instead of failing on them.
 - Our plan for the user test: buy a Twilio phone number for WhatsApp, and open an account with a host that keeps the code running online, because some testers will only try it if it is on their phone and always on. Then we connect the WhatsApp webhook and the Done / Later template to the same store, give each tester their own conversation, and tell them who processes their texts.
+
+Session 7 (27 Oct class, built 1 Nov): Products That Learn and Adapt
+- Still no outside users of this MVP, so the user data we have is older: David's own chat with the full Wazy on WhatsApp (6 Apr to 27 Sep 2026, 179 messages from him) and informal use by four friends in March to May. In those six months only one reminder ever reached David without him writing first, most likely because WhatsApp needs an approved template outside the 24-hour window, and his use fell from 21 active days in April to 2 in September. One friend wrote that it had stopped writing to him. Lesson: the nudge arriving reliably is the product, so every nudge in the user test has to be either inside 24 hours of the person's last message or an approved template.
+- Replay of real messages (the second, founder-run loop): we ran the 51 commitments with a time in them from David's old chat through the MVP rules. 40 were read right (78%). The misses were dates written out ("30 April", "on the 22nd", "23 July") and "in one hour" or "in half an hour". We added those phrasings and a guard so that questions and edits ("what do I have next week", "change it to April 26") get an explanation instead of a wrong nudge. Now 49 of 51 (96%), with false nudges from non-commitments down from 2 to 1. This is measured on the same messages the fixes came from, so it overstates; the fair number is on new users' messages. The messages stay out of this repository because they are personal.
+- Learning loop built: from `nudge_outcomes`, Wazy counts how a person answers nudges at their default hour (10:00, used when they only give a day) and the hour they most often tap Done. With at least 3 answered nudges at the default hour, fewer than half of them Done, and at least 3 Done taps clustered at another hour between 08:00 and 21:00, it asks once: shall I use that hour from now on? YES sets `learned_hour`; NO keeps 10:00 and it waits two weeks. "What did you learn" explains it in plain words; "forget" wipes it and stops learning until "learn again". Later re-nudges use the learned hour too.
+- Human safety check: the person, at the riskiest step (changing when their nudges fire). The founders read `learning_log` and `reader_misses` once a week (about 15 minutes) before changing any rule for everyone.
+- Red lines, in code and tests: never change a time the person gave; never push a deadline ("by Friday") later; never propose an hour outside 08:00 to 21:59; never more than one question per two weeks; nothing after STOP or "forget".
+- Growth metrics now in `stats()`: share of commitments done at the first nudge (`first_nudge_done_rate`) and the count of reader misses. The presenter view shows a learning log panel.
+- Tests: 44 (15 new: 10 for the learning loop, 5 for the new phrasings and the question/edit guard). Built with Claude as our coding agent instead of Kiro (the handout names Kiro); declared in the AI Orchestration Log, Entry 7.

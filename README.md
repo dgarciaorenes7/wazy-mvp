@@ -33,6 +33,13 @@ To clear the demo, press **Shift + R** on the presenter view. Stop the server wi
 
 Texting `STOP` ends all nudges. Typing `done` or `later` answers the open nudge.
 
+## What it learns (Session 7), and how it asks first
+
+- When you only give a day ("send the draft on Monday"), Wazy nudges at 10:00. If your 10:00 nudges keep getting **Later** or no reply while you tick things off at another hour, Wazy **asks** once whether to use that hour instead. Nothing changes until you reply **YES**.
+- A time you gave yourself is never changed, and a deadline ("by Friday") is never pushed later. At most one question every two weeks.
+- `what did you learn` explains it in plain words. `forget` wipes it and stops learning (`learn again` turns it back on).
+- Every proposal and answer is a row in `learning_log`, shown on the presenter view. Messages whose time the rules missed are kept with the reply that fixed them in `reader_misses`, for us to add rules weekly.
+
 ## How it is built
 
 ```
@@ -42,7 +49,7 @@ wazy/
   store.py      SQLite tables, the conversation, and the scheduler (code decides when to nudge)
   server.py     standard-library HTTP server, access rules, JSON API
   static/       chat.html (the phone) and demo.html (the presenter view)
-tests/          29 unit tests: reading times, the whole loop including Later, STOP and no reply, and settings
+tests/          44 unit tests: reading times, the whole loop including Later, STOP and no reply, the learning loop, and settings
 architecturedoc.md          architecture document, with the Session 6 log
 scope.md                    scope definition sheet
 Wazy MVP - Explainer.pdf    five-page explainer: what it tests, how it works, how to run it, security
@@ -103,3 +110,4 @@ The code is ready for a host that keeps one process running (not a serverless on
 - **One conversation per server.** The two-week test with three users needs one link per person.
 - Nudges go out **only while the computer is awake**. The user test needs an always-on host.
 - One time zone for everyone (`WAZY_TZ`, Madrid by default), which is fine for our testers.
+- The learning loop has only run on a **simulated fortnight** (our own test script), not on real users. It learns one thing, the default hour, from simple counts.

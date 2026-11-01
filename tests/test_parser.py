@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime, timedelta
 
-from wazy.parser import parse_rules
+from wazy.parser import not_a_commitment, parse_rules
 
 NOW = datetime(2026, 10, 13, 9, 30)  # a Tuesday morning
 
@@ -56,6 +56,36 @@ class ReadsTheTime(unittest.TestCase):
 
     def test_time_only_reply_has_no_title(self):
         self.check("tomorrow 9am", "", datetime(2026, 10, 14, 9, 0))
+
+    # Added 1 Nov 2026 after replaying 84 real messages sent to the old Wazy (Apr-Sep 2026):
+    # these were the phrasings the rules missed.
+    def test_numbers_written_as_words_and_half_an_hour(self):
+        self.check("remind me in one hour to send the class reminder", "Send the class reminder", NOW + timedelta(hours=1))
+        self.check("remind me in half an hour to text Max", "Text Max", NOW + timedelta(minutes=30))
+        self.check("llamar al banco en dos horas", "Llamar al banco", NOW + timedelta(hours=2))
+        self.check("recuérdame en media hora sacar la ropa", "Sacar la ropa", NOW + timedelta(minutes=30))
+
+    def test_written_out_dates(self):
+        self.check("accounting exam on 30 April at 10:45", "Accounting exam", datetime(2027, 4, 30, 10, 45))
+        self.check("book the passport appointment on the 23 October at 11:36", "Book the passport appointment", datetime(2026, 10, 23, 11, 36))
+        self.check("hand in the essay on October 16", "Hand in the essay", datetime(2026, 10, 16, 10, 0))
+        self.check("send the deck 25th october", "Send the deck", datetime(2026, 10, 25, 10, 0))
+        self.check("pagar la matrícula el 3 de noviembre", "Pagar la matrícula", datetime(2026, 11, 3, 10, 0))
+
+    def test_day_of_month_alone_means_the_next_time_it_comes_round(self):
+        self.check("driving exam on the 27th", "Driving exam", datetime(2026, 10, 27, 10, 0))
+        self.check("pay the gym on the 2nd", "Pay the gym", datetime(2026, 11, 2, 10, 0))
+
+    def test_questions_and_edits_are_not_new_commitments(self):
+        for text in ("What do I have next week", "change it to april 26", "Change the date to today",
+                     "Add that same event on the 23 and the 24", "can you move my meeting?", "¿qué tengo mañana?"):
+            self.assertTrue(not_a_commitment(text), text)
+        for text in ("Change the oil tomorrow", "Call Ana on Tuesday", "Send Marta the slides by Thursday",
+                     "cancel the gym membership on Friday", "remind me to ask Leo what time the match is"):
+            self.assertFalse(not_a_commitment(text), text)
+
+    def test_impossible_date_asks_instead_of_guessing(self):
+        self.check("call Ana on 31 April", "Call Ana on 31 April", None)
 
 
 if __name__ == "__main__":
