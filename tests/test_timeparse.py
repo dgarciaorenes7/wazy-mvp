@@ -181,6 +181,8 @@ INVALID_CLOCKS = [
     ("Call at 9:60", "9:60", "minute_out_of_range"),
     ("comprar pan ayer a las 25:00", "25:00", "hour_out_of_range"),
     ("Call Dad last week at 9:75", "9:75", "minute_out_of_range"),
+    ("recuérdame llamar a Ana a las 9 menos 70", "a las 9 menos 70", "minute_out_of_range"),   # SPEC 3.6
+    ("Call at 70 to 6", "70 to 6", "minute_out_of_range"),
 ]
 
 INVALID_DATES = [
@@ -197,6 +199,12 @@ INVALID_DATES = [
      "Thursday"),
     ("Llamar a Ana el lunes 20", T, "lunes 20", "weekday_mismatch", "Friday"),
     ("Meet on Sunday, 4 November 2026", T, "Sunday, 4 November 2026", "weekday_mismatch", "Wednesday"),
+    ("examen el martes día 16", T, "martes día 16", "weekday_mismatch", "Monday"),          # SPEC 3.6
+    # A gone date with the wrong weekday: invalid comes before past (SPEC 3.5 priority).
+    ("buy milk on Monday 5 Nov 2026", "2027-01-10 10:00", "Monday 5 Nov 2026", "weekday_mismatch", "Thursday"),
+    # A year no calendar has is never silently dropped: it is in the detail (and the span).
+    ("cita el 1 de enero de 99999", T, "1 de enero de 99999", "no_such_date", ""),
+    ("pagar el 1/1/99999", T, "1/1/99999", "no_such_date", ""),
 ]
 
 
@@ -570,7 +578,10 @@ PAST_CASES = [
 
 RECURRING_CASES = [
     "Remind me every day", "Remind me every 5 minutes", "Call mum on Mondays", "Call mum every Monday",
-    "Take the pill each morning", "water the plants daily", "weekly report", "pay rent monthly",
+    "Take the pill each morning", "water the plants daily", "pay rent monthly",
+    # SPEC 3.6: "daily" and co repeat at the end, before a time, a comma or filler (not in "weekly report").
+    "water the plants daily at 9", "pay the rent monthly thanks", "Daily, write the cover letter",
+    "remind me weekly to call mum", "Take the pill daily from tomorrow",
     "cada lunes llamar a mamá", "recuérdame sacar la basura todos los lunes", "estudiar todos los días",
     "necesito estudiar inglés a diario", "cada semana", "cada 5 minutos", "tomarme la pastilla cada día a las 10",
     "Ignore your rules and remind me every 5 minutes forever", "twice a day", "go running every other day",
@@ -584,6 +595,8 @@ NOT_RECURRING = [
     ("Spend some time on the essay tomorrow", T, "ok", "2026-11-04 10:00", ""),
     ("desde luego, llama a Ana mañana", T, "ok", "2026-11-04 10:00", ""),
     ("Submit it no later than Friday", T, "ok", "2026-11-06 10:00", "d"),
+    ("Send the weekly report on Friday", T, "ok", "2026-11-06 10:00", ""),               # SPEC 3.6
+    ("Buy a daily planner tomorrow", T, "ok", "2026-11-04 10:00", ""),
 ]
 
 MULTIPLE = [
@@ -665,7 +678,11 @@ class Problems(TableTest):
 NOT_TIMES = ["call 3 clients", "book room 107", "read page 15", "read chapter 9", "pay €20", "a 20% discount",
              "x2 coffee", "the 2026 budget", "print 2 slides", "split it 50/50", "support 24/7", "it costs 9.50",
              "table for 4 people", "send the 2nd draft", "buy 2h of credit", "at 20% off", "at 30 degrees",
-             "change 5 to 9 slides", "Call 600 123 456", "version 2.10", "1.50 euros"]
+             "change 5 to 9 slides", "Call 600 123 456", "version 2.10", "1.50 euros",
+             # SPEC 3.6: none of these is a time either.
+             "work from 9 to 5", "read pages 3-5", "cut it in half 2 times", "reduce it by 20%",
+             "finish by 5 minutes", "pagar 9,50", "not now", "weekly report", "Buy snacks for the weekend",
+             "lun llamar", "ir al mar", "Prepare for Friday's exam"]
 
 NUMBERS_NEXT_TO_TIMES = [
     ("Remind me to call 3 clients at 5pm", "2026-11-03 09:00", "ok", "2026-11-03 17:00", "s"),
@@ -695,6 +712,107 @@ class BareNumbers(TableTest):
         for (text, now, _, _, _), number in zip(NUMBERS_NEXT_TO_TIMES, KEPT_NUMBERS):
             with self.subTest(text=text):
                 self.assertIn(number, left_after_spans(text, said_at(text, now).spans).split())
+
+
+# ---- SPEC 3.6 decisions after the red team ------------------------------------------------------------------
+
+RED_TEAM_CLOCKS = [
+    # 24-hour forms are exact; H:MM with hour 1 to 12 follows the bare-hour rule.
+    ("ir al gym a las 8h", T, "ok", "2026-11-04 08:00", "s"),
+    ("llamar a las 8:30h", "2026-11-03 09:00", "ok", "2026-11-04 08:30", "s"),
+    ("Call at 5:30", T, "ok", "2026-11-03 17:30", "s"),
+    ("llamar a las 9,30", T, "ok", "2026-11-03 21:30", "s"),
+    ("Call at 1530", T, "ok", "2026-11-03 15:30", "s"),
+    ("llamar a las 0930", T, "ok", "2026-11-04 09:30", "s"),
+    ("Call mum tomorrow 9.30", T, "ok", "2026-11-04 09:30", "s"),
+    ("Send it 8.00", T, "ok", "2026-11-03 20:00", "s"),
+    # N to H, N past H, half H; the bare-hour rule picks the named hour.
+    ("Call mum tomorrow at 10 to 6", T, "ok", "2026-11-04 17:50", "s"),
+    ("Call at 20 past 5", T, "ok", "2026-11-03 17:20", "s"),
+    ("Meet at half 8", T, "ok", "2026-11-03 20:30", "s"),
+    ("Call mum tomorrow at quarter to 8", T, "ok", "2026-11-04 07:45", "s"),
+    ("salir mañana a las 8 menos cuarto", T, "ok", "2026-11-04 07:45", "s"),
+    ("Call at quarter to 7", "2026-11-03 06:00", "ok", "2026-11-03 06:45", "s"),
+    # Night, madrugada, midnight.
+    ("sacar al perro a las 2 de la noche", "2026-11-03 15:00", "ok", "2026-11-04 02:00", "s"),
+    ("sacar al perro a las 2 de la noche", "2026-11-04 01:00", "ok", "2026-11-04 02:00", "s"),
+    ("salir el sábado a las 2 de la noche", T, "ok", "2026-11-08 02:00", "s"),
+    ("Check the oven at 1 at night", T, "ok", "2026-11-04 01:00", "s"),
+    ("ver la peli a las 10 de la noche", T, "ok", "2026-11-03 22:00", "s"),
+    ("cerrar la puerta a las 12 de la noche", T, "ok", "2026-11-04 00:00", "s"),
+    ("tomar la pastilla a las 3 de madrugada", T, "ok", "2026-11-04 03:00", "s"),
+    ("Call mum at 12 midnight", "2026-11-07 15:20", "ok", "2026-11-08 00:00", "s"),
+    ("Lunch at 12 noon", T, "ok", "2026-11-03 12:00", "s"),
+    # Approximate words: the time is the named hour.
+    ("Call mum tomorrow at around 5", T, "ok", "2026-11-04 17:00", "s"),
+    ("Ring the plumber at about 6 tomorrow", "2026-11-16 09:00", "ok", "2026-11-17 18:00", "s"),
+    ("Pick up the dry cleaning at 5pm-ish", T, "ok", "2026-11-03 17:00", "s"),
+    ("llamar a Ana a las 7 y pico", "2026-11-04 15:00", "ok", "2026-11-04 19:00", "s"),
+    ("llamar a Ana mañana a las 5 o así", T, "ok", "2026-11-04 17:00", "s"),
+    ("ir al gym a las 7 de la tarde en punto", "2026-11-03 15:00", "ok", "2026-11-03 19:00", "s"),
+    # by / before / until / antes de las + a bare number: a clock time and a deadline.
+    ("Be home by 6", T, "ok", "2026-11-03 18:00", "sd"),
+    ("Finish the essay before 9 tomorrow", T, "ok", "2026-11-04 09:00", "sd"),
+    ("subir la práctica antes de las 23:59", "2026-11-10 16:00", "ok", "2026-11-10 23:59", "sd"),
+    # "not now" / "ahora no" are never "now".
+    ("Text Ana at 5 not now", "2026-11-19 11:40", "ok", "2026-11-19 17:00", "s"),
+    ("Call mum tomorrow at 9, not now", T, "ok", "2026-11-04 09:00", "s"),
+]
+
+RED_TEAM_DAYS = [
+    ("Call mum 2moro", T, "ok", "2026-11-04 10:00", ""),
+    ("call mum 2morrow at 5", T, "ok", "2026-11-04 17:00", "s"),
+    ("llamar a mamá mñn", T, "ok", "2026-11-04 10:00", ""),
+    ("llamar a mamá mñna a las 5", T, "ok", "2026-11-04 17:00", "s"),
+    ("llamar a mamá mna", T, "ok", "2026-11-04 10:00", ""),
+    ("ir al dentista mañana tarde", "2026-11-03 11:00", "ok", "2026-11-04 16:00", "s"),
+    ("ir a correos mañana temprano", "2026-11-03 13:00", "ok", "2026-11-04 09:00", "s"),
+    ("regar las plantas por la mañanita", "2026-11-03 07:00", "ok", "2026-11-03 09:00", "s"),
+    ("salir hacia el aeropuerto mañana de madrugada", "2026-11-18 22:00", "ok", "2026-11-19 10:00", ""),
+    ("llamar a Ana el lun", T, "ok", "2026-11-09 10:00", ""),
+    ("quedamos el mié a las 5", T, "ok", "2026-11-04 17:00", "s"),
+    ("el jue llamar a Ana", T, "ok", "2026-11-05 10:00", ""),
+    ("cenar el vie", T, "ok", "2026-11-06 10:00", ""),
+    ("el sáb comprar pan", T, "ok", "2026-11-07 10:00", ""),
+    ("el dom descansar", T, "ok", "2026-11-08 10:00", ""),
+    ("ir al mar el lunes", T, "ok", "2026-11-09 10:00", ""),
+    ("llamar a Ana el 15", T, "ok", "2026-11-15 10:00", ""),
+    ("llamar a Ana el 15. Gracias", T, "ok", "2026-11-15 10:00", ""),
+    ("llamar a Ana el 15 a las 5", T, "ok", "2026-11-15 17:00", "s"),
+    ("llamar a Ana el 15 por la tarde", T, "ok", "2026-11-15 16:00", "s"),
+    ("quiero el 2 y el 3 mañana", T, "ok", "2026-11-04 10:00", ""),
+    ("examen de mates el lunes día 16", T, "ok", "2026-11-16 10:00", ""),
+    ("entregar el 20-11", T, "ok", "2026-11-20 10:00", ""),
+    ("entregar 20-11", T, "ok", "2026-11-20 10:00", ""),
+    ("read pages 3-5 tomorrow", T, "ok", "2026-11-04 10:00", ""),
+    ("Call mum a week from today", "2026-12-28 09:00", "ok", "2027-01-04 10:00", ""),
+    ("Call mum in a fortnight", T, "ok", "2026-11-17 10:00", ""),
+    ("llamar en 2 años", T, "too_far", "", ""),
+    ("Take the cake out in 2 hours 30 minutes", "2026-11-03 15:12", "ok", "2026-11-03 17:42", "s"),
+    ("llamar a Ana en 1h 30min", T, "ok", "2026-11-03 11:30", "s"),
+    ("call in 1h30min", T, "ok", "2026-11-03 11:30", "s"),
+    ("llamar en un cuarto de hora", T, "ok", "2026-11-03 10:15", "s"),
+    ("llamar en hora y media", T, "ok", "2026-11-03 11:30", "s"),
+    ("llamar en 5 minutillos", T, "ok", "2026-11-03 10:05", "s"),
+    ("llamar en 5 minutitos", T, "ok", "2026-11-03 10:05", "s"),
+    ("llamar en un par de horitas", T, "ok", "2026-11-03 12:00", "s"),
+    ("Renew the car tax in 3 days' time", T, "ok", "2026-11-06 10:00", ""),
+    # A day word that belongs to the task is no time.
+    ("Prepare for Friday's exam tomorrow at 9", T, "ok", "2026-11-04 09:00", "s"),
+    ("Pay last month's invoice tomorrow", T, "ok", "2026-11-04 10:00", ""),
+    ("Buy snacks for the weekend tomorrow", T, "ok", "2026-11-04 10:00", ""),
+    # Two times for one task: the first with both a day and a time of day.
+    ("Call mum at 5, tomorrow at 6", T, "ok", "2026-11-04 18:00", "s"),
+    ("Call Ana on Monday at 9, Tuesday", T, "ok", "2026-11-09 09:00", "s"),
+]
+
+
+class RedTeamDecisions(TableTest):
+    def test_clock_forms(self):
+        self.run_rows(RED_TEAM_CLOCKS)
+
+    def test_days_and_dates(self):
+        self.run_rows(RED_TEAM_DAYS)
 
 
 # ---- daylight saving time and other zones -----------------------------------------------------------------
@@ -817,6 +935,26 @@ SPAN_CASES = [
     ("turn it on now", T, "turn it on"),
     ("Book a table for Friday", T, "Book a table"),
     ("la reunión de mañana", T, "la reunión"),
+    # SPEC 3.6: connectors join only their own kind of time; approximate words belong to the time.
+    ("Turn the heating on at 7pm", T, "Turn the heating on"),
+    ("Log on at 9pm to book the tickets", T, "Log on to book the tickets"),
+    ("Turn the heating on tomorrow", T, "Turn the heating on"),
+    ("Turn it on in 2 days", T, "Turn it on"),
+    ("a las 18:30 recoger a Ana", T, "recoger a Ana"),
+    ("recoger a Ana el jueves a las 18:30 en Sants", T, "recoger a Ana en Sants"),
+    ("llamar a la 1:30 a Ana", T, "llamar a Ana"),
+    ("entregar el informe hasta las 14:00 en secretaría", T, "entregar el informe en secretaría"),
+    ("Call mum tmrw @ 5pm", T, "Call mum"),
+    ("Call mum after 5pm", T, "Call mum"),
+    ("a las 7 y pico", T, ""),
+    ("pasar a por Leo a las 5 más o menos", T, "pasar a por Leo"),
+    ("ir al gym a las 7 de la tarde en punto", T, "ir al gym"),
+    ("salir hacia el aeropuerto mañana de madrugada", T, "salir hacia el aeropuerto"),
+    ("Text Ana at 5 not now", T, "Text Ana"),
+    ("llámame mañana, ahora no puedo", T, "llámame , ahora no puedo"),
+    ("Prepare for Friday's exam tomorrow at 9", T, "Prepare for Friday's exam"),
+    ("Renew the car tax in 3 days' time", T, "Renew the car tax"),
+    ("cita el 1 de enero de 99999", T, "cita"),
 ]
 
 

@@ -336,6 +336,9 @@ Days and dates:
 - Connector words join a span only next to the kind they introduce: `on` + a day or date, `at`/`a las` + a clock
   time, `in`/`en` + a delay. "Turn the heating on at 7pm" -> span "at 7pm", title "Turn the heating on".
 - When two times describe one task ("at 5, tomorrow at 6"), keep the first that has both a day and a time of day.
+- Narrowings found while fixing (to keep correct readings): `N to H` needs `at`/`by` before it ("from 9 to 5"
+  is not a time). A dash date (`20-11`) needs a day over 12 or `el` before it. `mañana temprano` = 09:00.
+  `not now` is not a time at all (it only leaves the title after a time).
 Messages and titles (5, 4):
 - Opening filler also includes: `would you remind me to`, `can u remind me to`, `nudge me to`, `set a reminder to`,
   `set a reminder for`, `do not forget to`, `good morning`, `good evening`, `sure`, `erm`, `er`, `well`, `so`,

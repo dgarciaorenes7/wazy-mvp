@@ -104,28 +104,34 @@ NUMBER_WORDS.update({
 })
 # How much "a couple of hours" or "half an hour" is. None means "no exact number" ("a few").
 QUANTITY_WORDS = {"a": 1, "an": 1, "a couple": 2, "a couple of": 2, "un par de": 2, "half an": 0.5,
-                  "half a": 0.5, "media": 0.5, "a few": None, "unos": None, "unas": None,
-                  "unos pocos": None, "unas pocas": None}
+                  "half a": 0.5, "media": 0.5, "a quarter of an": 0.25, "un cuarto de": 0.25, "a few": None,
+                  "unos": None, "unas": None, "unos pocos": None, "unas pocas": None}
 FRACTIONS = {"and a half": 0.5, "y media": 0.5, "and a quarter": 0.25, "y cuarto": 0.25}
+DELAY_PHRASES = {"hora y media": 90 * 60}       # "en hora y media" has no number (SPEC 3.6), in seconds
 
 UNIT_WORDS = {
     "second": ("seconds", "second", "secs", "sec", "s", "segundos", "segundo", "segs", "seg"),
-    "minute": ("minutes", "minute", "mins", "min", "m", "minutos", "minuto"),
-    "hour": ("hours", "hour", "hrs", "hr", "h", "horas", "hora"),
+    "minute": ("minutes", "minute", "mins", "min", "m", "minutos", "minuto", "minutitos", "minutito",
+               "minutillos", "minutillo"),
+    "hour": ("hours", "hour", "hrs", "hr", "h", "horas", "hora", "horitas", "horita"),
     "day": ("days", "day", "dias", "dia"),
     "week": ("weeks", "week", "semanas", "semana"),
+    "fortnight": ("fortnights", "fortnight", "quincenas", "quincena"),
     "month": ("months", "month", "meses", "mes"),
+    "year": ("years", "year", "yrs", "yr", "anos", "ano"),
 }
 UNIT_OF = {word: unit for unit, words in UNIT_WORDS.items() for word in words}
-SECONDS_IN = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 7 * 86400}
+SECONDS_IN = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 7 * 86400, "fortnight": 14 * 86400}
+MONTHS_IN = {"month": 1, "year": 12}            # "in a month", "en 2 años" count calendar months
 
 WEEKDAYS = {
-    "monday": 0, "mon": 0, "lunes": 0, "tuesday": 1, "tue": 1, "tues": 1, "martes": 1,
-    "wednesday": 2, "wed": 2, "weds": 2, "miercoles": 2, "thursday": 3, "thu": 3, "thur": 3, "thurs": 3,
-    "jueves": 3, "friday": 4, "fri": 4, "viernes": 4, "saturday": 5, "sat": 5, "sabado": 5,
-    "sunday": 6, "sun": 6, "domingo": 6,
+    "monday": 0, "mon": 0, "lunes": 0, "lun": 0, "tuesday": 1, "tue": 1, "tues": 1, "martes": 1,
+    "wednesday": 2, "wed": 2, "weds": 2, "miercoles": 2, "mie": 2, "thursday": 3, "thu": 3, "thur": 3,
+    "thurs": 3, "jueves": 3, "jue": 3, "friday": 4, "fri": 4, "viernes": 4, "vie": 4, "saturday": 5,
+    "sat": 5, "sabado": 5, "sab": 5, "sunday": 6, "sun": 6, "domingo": 6, "dom": 6,
 }
 SHORT_DAYS_THAT_ARE_WORDS = {"mon", "wed", "sat", "sun"}     # "I sat down", "the sun": need "on"/"next"/...
+SPANISH_SHORT_DAYS = {"lun", "mie", "jue", "vie", "sab", "dom"}  # only after "el" ("el mar" is the sea, SPEC 3.6)
 SPANISH_WEEKDAYS = {"lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"}
 WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
@@ -147,17 +153,25 @@ FREE_PARTS = {"in the morning": "morning", "in the afternoon": "afternoon", "in 
               "at night": "night", "por la manana": "morning", "por la tarde": "afternoon",
               "por la noche": "night", "en la manana": "morning", "en la tarde": "afternoon",
               "en la noche": "night", "first thing in the morning": "morning", "first thing": "morning",
-              "a primera hora": "morning"}
+              "a primera hora": "morning", "por la mananita": "morning"}
 # These only fix am/pm right after a clock time ("a las 5 de la tarde"); "el tren de la mañana" is no time.
 CLOCK_PARTS = {"de la manana": "morning", "de la tarde": "afternoon", "de la noche": "night",
-               "de la madrugada": "early", "del mediodia": "noon"}
+               "de la madrugada": "early", "de madrugada": "early", "del mediodia": "noon"}
 # These only count right after a day ("tomorrow morning", "Friday evening"); "good morning" is no time.
 DAY_PARTS = {"morning": "morning", "afternoon": "afternoon", "evening": "evening", "night": "night"}
 ALL_PARTS = dict(TODAY_PARTS, **FREE_PARTS, **CLOCK_PARTS, **DAY_PARTS)
+# Spanish one-word parts, only right after a day word: "mañana tarde" (SPEC 3.6), "mañana temprano" (= first
+# thing, like "a primera hora"). Elsewhere "tarde" is "late" ("llegar tarde", "el viernes como tarde").
+SPANISH_DAY_PARTS = {"tarde": "afternoon", "noche": "night", "temprano": "morning"}
 
 DAYS_AHEAD = {"today": 0, "hoy": 0, "tomorrow": 1, "tmrw": 1, "tmr": 1, "tomorow": 1, "tommorow": 1,
-              "tommorrow": 1, "manana": 1, "the day after tomorrow": 2, "day after tomorrow": 2,
-              "pasado manana": 2}
+              "tommorrow": 1, "2moro": 1, "2morrow": 1, "manana": 1, "mnn": 1, "mnna": 1, "mna": 1,
+              "the day after tomorrow": 2, "day after tomorrow": 2, "pasado manana": 2}   # mnn = "mñn"
+# Only these name the weekend as a time; "for the weekend" is part of the task (SPEC 3.6).
+# True: "next weekend", which said at the weekend means the following one.
+WEEKEND_WORDS = {"this weekend": False, "this coming weekend": False, "este fin de semana": False,
+                 "este finde": False, "el finde": False, "next weekend": True, "el proximo finde": True,
+                 "el proximo fin de semana": True, "el finde que viene": True, "el fin de semana que viene": True}
 
 VAGUE_WORDS = [
     "at some point", "sometime", "some time", "someday", "some day", "soon", "soonish", "later", "later on",
@@ -190,26 +204,36 @@ REPEAT_UNITS = [
 REPEAT_WORDS = ["daily", "weekly", "monthly", "yearly", "annually", "hourly", "nightly", "fortnightly",
                 "biweekly", "everyday", "forever", "a diario", "diariamente", "semanalmente", "mensualmente",
                 "anualmente", "para siempre", "cada dia"]
+# These can also describe the task ("weekly report", "daily planner", SPEC 3.6): see drop_task_adjectives().
+REPEAT_ADJECTIVES = {"daily", "weekly", "monthly", "yearly", "hourly", "nightly", "fortnightly", "biweekly"}
 
-# Little words that belong to the time next to them, so the title drops them too (SPEC 4.1).
+# Little words that belong to the time next to them, so the title drops them too (SPEC 4.1). A connector
+# joins only the kind of time it introduces (SPEC 3.6): "on" a date ("on Friday"), "at" or "a las" a clock
+# time, so "Turn the heating on at 7pm" keeps its "on". ("in" is not here: "in 2 hours" and "in the morning"
+# hold their own "in", and "check in tomorrow" must keep its "in".)
 DEADLINE_WORDS = {"no later than", "not later than", "by", "before", "until", "till", "til", "due",
                   "antes de", "antes del", "para", "como tarde", "como muy tarde", "hasta",
                   "a mas tardar", "at the latest", "at the very latest"}
-# ("in" is not here: "in 2 hours" and "in the morning" are inside their own patterns, and "check in tomorrow"
-# must keep its "in".)
-LEFT_CONNECTORS = DEADLINE_WORDS | {
-    "at", "on", "for", "from", "around", "about", "el", "del", "de", "a", "al", "en", "dentro de",
-    "sobre", "hacia", "desde", "a eso de", "eso de"}
-RIGHT_CONNECTORS = {"como tarde", "como muy tarde", "at the latest", "at the very latest", "a mas tardar",
-                    "sharp"}
+APPROXIMATE_BEFORE = {"around", "about", "sobre", "hacia", "a eso de", "eso de", "mas o menos"}
+APPROXIMATE_AFTER = {"-ish", "ish", "y pico", "o asi", "mas o menos", "en punto", "or so", "sharp"}
+ANY_CONNECTORS = DEADLINE_WORDS | APPROXIMATE_BEFORE | {"from", "after", "despues de", "desde", "a", "al",
+                                                       "de", "del"}
+CONNECTORS = {
+    "clock": ANY_CONNECTORS | {"at", "@", "a las", "a la", "las", "la"},      # at 5, a las 18:30, @ 5pm
+    "date": ANY_CONNECTORS | {"on", "at", "for", "el", "en"},         # on Friday, el 4 de nov, at the end of it
+    "day": ANY_CONNECTORS | {"for"},                  # for tomorrow; no "on": "turn it on tomorrow" keeps it
+}
+RIGHT_CONNECTORS = APPROXIMATE_AFTER | {"como tarde", "como muy tarde", "at the latest", "at the very latest",
+                                        "a mas tardar"}
 
-# Words that are not a task when deciding whether a message holds two tasks (SPEC 3.5 "multiple").
+# Words that are not a task: when deciding whether a message holds two tasks (SPEC 3.5 "multiple"), and
+# after "daily" or "weekly" ("monthly thanks" repeats; "weekly report" is a task, SPEC 3.6).
 NOT_TASK_WORDS = {
     "remind", "me", "to", "please", "pls", "plz", "and", "then", "the", "an", "i", "need", "have", "must",
     "should", "want", "also", "hey", "hi", "ok", "wazy", "don", "dont", "forget", "let", "it", "that",
     "this", "recuerdame", "recordarme", "acuerdate", "que", "de", "del", "y", "luego", "el", "la", "los",
     "las", "un", "una", "tengo", "necesito", "debo", "hay", "quiero", "porfa", "por", "favor", "oye",
-    "hola", "tambien", "no", "olvidar", "dejes", "olvides", "te",
+    "hola", "tambien", "no", "olvidar", "dejes", "olvides", "te", "thanks", "thank", "thx", "gracias",
 }
 
 
@@ -231,6 +255,11 @@ AMOUNT_AFTER = re.compile(r"\s*(?:%|€|\$|£|euros?\b|eur\b|dollars?\b|pounds?\
 # A word just before a number that makes it a clock time even without ":" ("at 9.30", "hasta las 5").
 TIME_WORD_BEFORE = re.compile(r"(?:\b(?:at|by|before|until|till|from|around|about|a\s+las?|las?|hasta|"
                               r"antes\s+de|para|sobre|hacia|desde)|@)\s*$")
+# Stricter, for "10 to 6" and "half 8" (SPEC 3.6): "change 5 to 9 slides" and "from 9 to 5" are no times.
+CLOCK_WORD_BEFORE = re.compile(r"(?:\b(?:at|by|before|until|till|around|about)|@)\s*$")
+DAY_WORD_BEFORE = re.compile(r"\b(?:today|tomorrow|tmrw|tmr|hoy|manana|" + WEEKDAY + r")\s*,?\s*$")  # tomorrow 9.30
+LAS_BEFORE = re.compile(r"\b(?:a\s+)?las?\s+$")                                                    # a las 9,30
+UNIT_AFTER = re.compile(r"\s*" + UNIT)                   # "by 5 minutes" is no clock time
 # A number right after one of these is a label, not a time: "read page 9 tonight", "sala 3 por la tarde".
 LABEL_BEFORE = re.compile(r"\b(?:page|pages|pg|p|chapter|ch|room|slide|slides|number|no|item|step|question|"
                           r"exercise|task|level|unit|section|table|gate|platform|line|bus|flat|floor|seat|"
@@ -263,67 +292,74 @@ PAST = [
     re.compile(r"\bhace\s+" + QUANTITY + r"\s*" + UNIT),
 ]
 
-# Delays (SPEC 3.3): "in 2 hours", "in an hour and a half", "en media hora", "dentro de 2 días",
-# "in 2 hours and 30 minutes", "20 minutes from now".
+# Delays (SPEC 3.3, 3.6): "in 2 hours", "in an hour and a half", "en media hora", "dentro de 2 días",
+# "in 2 hours and 30 minutes", "in 2 hours 30 minutes", "en 1h30min", "20 minutes from now", "in 3 days' time".
 DELAY = (r"(?P<qty>" + QUANTITY + r")(?P<frac1>\s+" + one_of(FRACTIONS) + r")?\s*(?P<unit>" + UNIT + r")"
          r"(?P<frac2>\s+" + one_of(FRACTIONS) + r")?"
-         r"(?:\s+(?:and|y)\s+(?P<qty2>\d+|" + NUMBER + r")\s*(?P<unit2>" + UNIT + r"))?")
-IN_DELAY = re.compile(r"\b(?:in|within|en|dentro\s+de|de\s+aqui\s+a)\s+" + DELAY + r"(?:\s+from\s+now\b)?")
-DELAY_FROM_NOW = re.compile(r"\b" + DELAY + r"\s+from\s+now\b")
+         r"(?:\s*(?:(?:and|y)\s+)?(?P<qty2>\d+|" + NUMBER + r")\s*(?P<unit2>" + UNIT + r"))?")
+IN_DELAY = re.compile(r"\b(?:in|within|en|dentro\s+de|de\s+aqui\s+a)\s+" + DELAY
+                      + r"(?:\s+from\s+now\b|'?\s+time\b)?")
+DELAY_FROM_NOW = re.compile(r"\b" + DELAY + r"\s+from\s+(?:now|today)\b")     # a week from today
+IN_PHRASE = re.compile(r"\b(?:in|en|dentro\s+de)\s+(?P<w>" + one_of(DELAY_PHRASES) + r")\b")
 
-# Dates (SPEC 3.2).
-YEAR = r"(?P<y>\d{4}|\d{2})"
-ISO_DATE = re.compile(r"\b(?P<y>\d{4})-(?P<mo>\d{1,2})-(?P<d>\d{1,2})\b")                   # 2026-11-04
+# Dates (SPEC 3.2). A year has 4 digits or more, so "1/1/99999" is an impossible date, not "1/1" (SPEC 3.6).
+YEAR = r"(?P<y>\d{4,}|\d{2})"
+ISO_DATE = re.compile(r"\b(?P<y>\d{4,})-(?P<mo>\d{1,2})-(?P<d>\d{1,2})\b")                  # 2026-11-04
 NUMERIC_DATE_WITH_YEAR = re.compile(r"(?<![\d/.-])(?P<d>\d{1,2})(?P<sep>[/.-])(?P<mo>\d{1,2})(?P=sep)"
                                     + YEAR + r"(?![\d/.-]?\d)")                           # 4/11/2026, 4-11-26
-NUMERIC_DATE = re.compile(r"(?<![\d/.,])(?P<d>\d{1,2})/(?P<mo>\d{1,2})(?![\d/]|\.\d)")     # 4/11, 04/11
+NUMERIC_DATE = re.compile(r"(?<![\d/.,-])(?P<d>\d{1,2})(?P<sep>[/-])(?P<mo>\d{1,2})(?![\d/-]|\.\d)")  # 4/11, 20-11
 DAY_MONTH = re.compile(r"\b(?:the\s+)?(?P<d>\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+|de\s+)?(?P<mon>" + MONTH
-                       + r")\b\.?(?:,?\s+(?:de\s+|del\s+)?(?P<y>\d{4}))?(?![:.]?\d)")    # 4 Nov, 4 de noviembre
+                       + r")\b\.?(?:,?\s+(?:de\s+|del\s+)?(?P<y>\d{4,}))?(?![:.]?\d)")   # 4 Nov, 4 de noviembre
 MONTH_DAY = re.compile(r"\b(?P<mon>" + MONTH + r")\.?\s+(?:the\s+)?(?P<d>\d{1,2})(?:st|nd|rd|th)?\b"
-                       r"(?:,?\s+(?P<y>\d{4}))?(?!\s*(?:[:.]\d|[ap]\.?m\b|h\b))")         # Nov 4, November 4th
+                       r"(?:,?\s+(?P<y>\d{4,}))?(?!\s*(?:[:.]\d|[ap]\.?m\b|h\b))")        # Nov 4, November 4th
 ORDINAL_DAY = re.compile(r"\bthe\s+(?P<d>\d{1,2})(?:st|nd|rd|th)\b")                       # (on) the 4th
 ORDINAL_TRIGGER = re.compile(r"\b(?:on|by|before|until|till|due|for|from|after)\s+$")
 DIA_DAY = re.compile(r"\bdia\s+(?P<d>\d{1,2})\b(?![:.]\d)")                                # (el) día 4
-WEEKDAY_NUMBER = re.compile(r"\b(?P<wd>" + WEEKDAY + r")\s*,?\s+(?P<the>the\s+|el\s+|dia\s+)?(?P<d>\d{1,2})"
+# "el 4" is a date only before the end, punctuation or a time: "el 4.", "el 4 a las 9" (SPEC 3.6).
+EL_DAY = re.compile(r"\bel\s+(?P<d>\d{1,2})\b(?![.,:/-]\d)(?=\s*(?:$|[,.;!?]|(?:a\s+las?|por\s+la|de\s+la)\b))")
+WEEKDAY_NUMBER = re.compile(r"\b(?P<wd>" + WEEKDAY + r")\s*,?\s+(?P<the>the\s+|el\s+)?(?P<d>\d{1,2})"
                             r"(?P<suf>st|nd|rd|th)?\b(?!\s*(?:[:./]\d|h\b|[ap]\.?m\b|de\b|y\b))")  # viernes 20
 WEEKDAY_BEFORE = re.compile(r"\b(?P<wd>" + WEEKDAY + r")\s*,?\s*(?:the\s+|el\s+|dia\s+)?$")    # "Monday" 5 Nov
 
-# Clock times (SPEC 3.1).
-COLON_TIME = re.compile(NO_DIGIT_BEFORE + r"(?P<h>\d{1,2})(?P<sep>[:.])(?P<m>\d{2})(?!\d)(?![.,:]\d)"
-                        r"(?:\s?" + MERIDIEM + r")?(?:\s?(?:h|hrs|hs)\b)?")                 # 20:00, 8.30pm
+# Clock times (SPEC 3.1, 3.6).
+COLON_TIME = re.compile(NO_DIGIT_BEFORE + r"(?P<h>\d{1,2})(?P<sep>[:.,])(?P<m>\d{2})(?!\d)(?![.,:]\d)"
+                        r"(?:\s?" + MERIDIEM + r")?(?P<suffix>\s?(?:h|hrs|hs)\b)?")         # 20:00, 8.30pm, 9,30
+FOUR_DIGIT_TIME = re.compile(r"(?:\b(?:at|a\s+las?)|@)\s*(?P<h>\d{2})(?P<m>\d{2})(?!\d)")  # at 1530
 AM_PM_TIME = re.compile(NO_DIGIT_BEFORE + r"(?P<h>\d{1,2})\s?" + MERIDIEM)               # 8pm, 8 p.m.
 H_TIME = re.compile(NO_DIGIT_BEFORE + r"(?P<h>\d{1,2})h(?P<m>\d{2})?\b")                  # 20h, 20h30
 PAST_TO_TIME = re.compile(r"\b(?P<mins>half|(?:a\s+)?quarter|\d{1,2}|" + NUMBER + r")(?P<word>\s+minutes?)?"
                           r"\s+(?P<dir>past|to)\s+(?P<h>\d{1,2}(?!\d)|" + EN_HOUR + r"\b)(?![:.]\d)")
-AT_TIME = re.compile(r"(?:\bat|@)\s*(?P<h>\d{1,2}(?!\d)|" + EN_HOUR + r"\b)(?![:.]\d)"
-                     r"(?P<tail>\s*-?ish\b|\s+o'?clock\b)?")                                # at 9, @ 5, at nine
+HALF_HOUR = re.compile(r"\bhalf\s+(?P<h>\d{1,2}(?!\d)|" + EN_HOUR + r"\b)(?![:.]\d)")     # (at) half 8, UK
+AT_TIME = re.compile(r"(?:\bat|@)\s*(?:(?:around|about)\s+)?(?P<h>\d{1,2}(?!\d)|" + EN_HOUR + r"\b)(?![:.]\d)"
+                     r"(?P<tail>\s*-?ish\b|\s+o'?clock\b)?")                     # at 9, @ 5, at around nine
+BY_TIME = re.compile(r"\b(?:by|before|until|till)\s+(?P<h>\d{1,2})\b(?![:.,/-]\d)")      # be home by 6
 LOOSE_TIME = re.compile(NO_DIGIT_BEFORE + r"(?P<h>\d{1,2}|" + EN_HOUR + r")(?:\s*-?ish\b|\s+o'?clock\b|"
                         r"\s+en\s+punto\b)")                                               # 9ish, 9 o'clock
 LAS_TIME = re.compile(r"\b(?P<trig>a\s+las?|las?)\s+(?P<h>\d{1,2}(?!\d)|" + ES_HOUR + r"\b)(?![:.]\d)"
                       r"(?:\s*h\b)?(?P<extra>\s+y\s+media|\s+y\s+cuarto|\s+menos\s+cuarto|"
-                      r"\s+(?:y|menos)\s+(?:\d{1,2}(?!\d)|" + NUMBER + r"\b)(?:\s+minutos?)?)?"
-                      r"(?:\s+en\s+punto)?")                                               # a las 9 y media
+                      r"\s+(?:y|menos)\s+(?:\d{1,2}(?!\d)|" + NUMBER + r"\b)(?:\s+minutos?)?)?")  # a las 9 y media
 NUMBER_BEFORE_PART = re.compile(NO_DIGIT_BEFORE + r"(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?(?=\s+" + one_of(
     ["in the morning", "in the afternoon", "in the evening", "at night", "tonight", "this morning",
      "this afternoon", "this evening"] + list(CLOCK_PARTS)) + r"\b)")                       # 9 tonight
-NOON_MIDNIGHT = re.compile(r"(?<!del )(?<!de la )\b(?P<w>noon|midday|mediodia|midnight|medianoche)\b")
+NOON_MIDNIGHT = re.compile(r"(?<!del )(?<!de la )\b(?:12\s+)?(?P<w>noon|midday|mediodia|midnight|medianoche)\b")
 
 # Parts of the day, days, weeks.
 PART_OF_DAY = re.compile(r"\b(?P<w>" + one_of(ALL_PARTS) + r")\b")
+DAY_THEN_PART = re.compile(r"\b(?:manana|hoy|" + WEEKDAY + r")\s+(?P<w>" + one_of(SPANISH_DAY_PARTS) + r")\b")
 DAY_WORD = re.compile(r"\b(?P<w>" + one_of(DAYS_AHEAD) + r")\b")
 WEEKDAY_WORD = re.compile(r"\b(?:(?P<this>this|este)\s+|(?P<next>next|this\s+coming|coming|el\s+proximo|"
                           r"proximo)\s+)?(?P<wd>" + WEEKDAY + r")\b\.?(?P<later>\s+que\s+viene|\s+proximo)?")
-WEEKEND = re.compile(r"\b(?:(?:this|the|este|el)\s+|(?P<next>next|el\s+proximo)\s+)?"
-                     r"(?:weekend|finde|fin\s+de\s+semana)\b(?P<later>\s+que\s+viene|\s+proximo)?")
+WEEKEND = re.compile(r"\b(?P<w>" + one_of(WEEKEND_WORDS) + r")\b")
 NEXT_WEEK = re.compile(r"\b" + one_of(["next week", "la semana que viene", "la proxima semana",
                                        "la semana proxima", "the following week"]) + r"\b")
 MONTH_END = re.compile(r"\b" + one_of(["end of the month", "the end of the month", "the end of this month",
                                        "end of this month", "end of month", "fin de mes", "final de mes",
                                        "finales de mes", "fin del mes", "final del mes"]) + r"\b")
 
-# "now" words (SPEC 3.3, 3.4). "ya" counts only as the last word; "now" not in "from now on", "for now".
+# "now" words (SPEC 3.3, 3.4). "ya" counts only as the last word; "now" not in "from now on", "for now",
+# "not now" (SPEC 3.6).
 NOW_WORD = re.compile(r"\b(?P<w>right\s+now|ahora\s+mismo|now|ahora)\b")
-NOT_NOW_BEFORE = re.compile(r"\b(?:from|for|until|till|by|just|por|hasta|desde|de|que)\s+$")
+NOT_NOW_BEFORE = re.compile(r"\b(?:from|for|until|till|by|just|not|por|hasta|desde|de|que)\s+$")
 NOT_NOW_AFTER = re.compile(r"\s+(?:that|on|no|que)\b")
 LAST_YA = re.compile(r"(?<![a-z])ya[\s.!]*$")
 
@@ -331,8 +367,10 @@ VAGUE = re.compile(r"(?<![a-z])(?P<w>" + one_of(VAGUE_WORDS) + r")(?![a-z])")
 NOT_VAGUE_BEFORE = {"luego": re.compile(r"\b(?:desde|hasta)\s+$"),          # "desde luego" = of course
                     "some time": re.compile(r"\b(?:spend|spent|take|find|make|need|have|for)\s+$")}
 
-LEFT_WORD = re.compile(r"\b(?P<w>" + one_of(LEFT_CONNECTORS) + r")\s+$")
-RIGHT_WORD = re.compile(r"\s*,?\s*(?P<w>" + one_of(RIGHT_CONNECTORS) + r")\b")
+LEFT_WORDS = {kind: re.compile(r"(?<!\w)(?P<w>" + one_of(words) + r")\s*$") for kind, words in CONNECTORS.items()}
+# After a time, "not now" / "ahora no" ending a phrase belong to it ("at 5, not now"); "ahora no puedo" does not.
+RIGHT_WORD = re.compile(r"\s*,?\s*(?P<w>" + one_of(RIGHT_CONNECTORS) + r"\b"
+                        r"|(?:not\s+now|ahora\s+no)(?=\s*(?:[,.;!?]|$)))")
 JOINER = re.compile(r"\b(?:and|then|y|e)\b|[,;]")      # what links two tasks: "call mum at 5 and email Bob"
 GLUE = re.compile(r"[\s,\-]*")                          # what may sit between two pieces of ONE time
 
@@ -353,8 +391,10 @@ class Piece:
     end: int
     left: int = 0            # the span to delete: the time words plus attached words like "by" or "el"
     right: int = 0
-    hour: int = 0            # clock: the hour (am/pm already applied when exact)
+    joins: str = "day"       # which connector words may join it: "clock", "date", "day", or "" (SPEC 3.6)
+    hour: int = 0            # clock: the hour named (am/pm already applied when exact)
     minute: int = 0          # clock: the minute
+    before: int = 0          # clock: minutes before the named hour ("quarter to 8" is 15 before 8)
     exact: bool = False      # clock: the hour is certain (am/pm, 24-hour form, noon); False for a bare "at 9"
     next_day: bool = False   # clock: midnight or "24:00", which is 00:00 of the following day
     day: Optional[date] = None   # day: a fixed date ("tomorrow", "4 Nov", "in 2 days")
@@ -368,12 +408,26 @@ class Piece:
     code: str = ""               # invalid: the detail_code
     hint: str = ""               # invalid: the real weekday when a weekday and a date disagree
 
+    def wall_time(self, hour: int) -> Tuple[int, int, bool]:
+        """(hour, minute, next_day) of a clock piece once its named hour is decided: the bare-hour rule picks
+        the hour that is named, then minutes before it count back ("tomorrow at quarter to 8" is 07:45,
+        SPEC 3.6). "Ten to midnight" is 23:50 of the day before that midnight."""
+        minutes = hour * 60 + self.minute - self.before
+        hour, minute = divmod(minutes % (24 * 60), 60)
+        return hour, minute, self.next_day and minutes >= 0
 
-def clock_problem(hour: int, minute: int, meridiem: str) -> str:
-    """The detail_code for a clock time that cannot exist, or "" if it is fine (SPEC 3.1 "Invalid")."""
+
+def slots_of(group: List[Piece]) -> set:
+    """The slots a group of pieces fills: "tomorrow at 5" fills day and clock."""
+    return set().union(*(SLOTS[piece.kind] for piece in group))
+
+
+def clock_problem(hour: int, minute: int, meridiem: str, before: int = 0) -> str:
+    """The detail_code for a clock time that cannot exist, or "" if it is fine (SPEC 3.1 "Invalid"; SPEC 3.6:
+    "a las 9 menos 70")."""
     if hour > 24 or (hour == 24 and minute > 0):
         return "hour_out_of_range"
-    if minute > 59:
+    if minute > 59 or before > 59:
         return "minute_out_of_range"
     if meridiem and not 1 <= hour <= 12:
         return "ampm_conflict"                  # 13pm, 0am
@@ -386,7 +440,8 @@ def hour_with_day(hour: int) -> int:
 
 
 def with_part(clock: Piece, part: str) -> Piece:
-    """A bare hour made exact by a part of the day: "5 de la tarde" is 17:00, "12 at night" is midnight."""
+    """A bare hour made exact by a part of the day: "5 de la tarde" is 17:00, "12 at night" is midnight,
+    "2 de la noche" is 02:00 after that night, "de madrugada" is always am (SPEC 3.1, 3.6)."""
     hour, next_day = clock.hour, False
     if part == "early" and hour == 12:                 # "las 12 de la madrugada"
         hour = 0
@@ -517,10 +572,12 @@ class Reader:
         for piece in self.pieces:
             self.attach_connectors(piece)
         self.drop_lonely_parts()
+        self.drop_task_adjectives()
 
     def take(self, piece: Piece) -> None:
-        """Keep a piece, unless an earlier rule already used some of its characters."""
-        if any(self.taken[piece.start:piece.end]):
+        """Keep a piece, unless an earlier rule already used some of its characters, or it is a day word
+        that belongs to the task: "Friday's exam", "last month's invoice" (SPEC 3.6)."""
+        if any(self.taken[piece.start:piece.end]) or self.low.startswith("'s", piece.end):
             return
         for index in range(piece.start, piece.end):
             self.taken[index] = True
@@ -534,10 +591,16 @@ class Reader:
                 self.take(Piece(kind, match.start(), match.end()))
 
     def find_delays(self) -> None:
-        """'in 2 hours', 'en media hora', 'in a week'. Under a day: exact. A day or more: that day."""
+        """'in 2 hours', 'en media hora', 'in a week'. Under a day: exact. A day or more: that day.
+        A delay holds its own first word ("in", "en"), so no connector joins it: "turn it on in 2 days"."""
         for pattern in (IN_DELAY, DELAY_FROM_NOW):
             for match in pattern.finditer(self.low):
-                self.take(self.delay_piece(match))
+                piece = self.delay_piece(match)
+                piece.joins = ""
+                self.take(piece)
+        for match in IN_PHRASE.finditer(self.low):                      # en hora y media
+            seconds = DELAY_PHRASES[squash(match.group("w"))]
+            self.take(Piece("relative", match.start(), match.end(), joins="", delta=timedelta(seconds=seconds)))
 
     def delay_piece(self, match: re.Match) -> Piece:
         """The piece for one delay: exact under a day, a fixed date from a day on, vague for "a few days"."""
@@ -551,17 +614,17 @@ class Reader:
         for fraction in (match.group("frac1"), match.group("frac2")):
             if fraction:
                 count += FRACTIONS[squash(fraction)]
-        if unit == "month":
-            return Piece("day", start, end, day=add_months(self.today, round(min(count, 14))))
+        if unit in MONTHS_IN:                   # "in a month", "en 2 años" (over 14 months is too far anyway)
+            return Piece("day", start, end, day=add_months(self.today, round(min(count * MONTHS_IN[unit], 14))))
         seconds = count * SECONDS_IN[unit]
-        if match.group("qty2"):                 # "in 2 hours and 30 minutes"
+        if match.group("qty2"):                 # "in 2 hours and 30 minutes", "en 1h 30min"
             seconds += number(match.group("qty2")) * SECONDS_IN.get(UNIT_OF[match.group("unit2")], 0)
         if seconds > LONGEST_DELAY_DAYS * 86400:   # far beyond the limit: too far anyway, and huge numbers
             return Piece("day", start, end, day=self.today + timedelta(days=LONGEST_DELAY_DAYS))  # would overflow
         delta = timedelta(seconds=seconds)
         if delta < DAY:
             return Piece("relative", start, end, delta=delta)
-        if unit in ("day", "week"):             # count calendar days, so a clock change cannot shift the date
+        if unit in ("day", "week", "fortnight"):   # count calendar days, so a clock change cannot shift the date
             return Piece("day", start, end, day=self.today + timedelta(days=round(seconds / 86400)))
         return Piece("day", start, end, day=self.after(delta).date())
 
@@ -572,17 +635,23 @@ class Reader:
                 parts = match.groupdict()
                 day = int(parts["d"])
                 month = MONTHS[parts["mon"]] if parts.get("mon") else int(parts.get("mo") or 0)
-                not_a_date = not (1 <= day <= 31 and 1 <= month <= 31) or match.group(0) == "24/7"
-                if pattern is NUMERIC_DATE and not_a_date:
-                    continue                    # "50/50" and "24/7" are no dates; "4/11" (or the impossible 13/13) is
-                piece = self.date_piece(match.start(), match.end(), day, month, full_year(parts.get("y")))
+                if pattern is NUMERIC_DATE and not self.numbers_are_a_date(match, day, month):
+                    continue
+                year = full_year(parts.get("y"))
+                piece = self.date_piece(match.start(), match.end(), day, month, year)
                 self.check_weekday_before(piece)
+                if piece.kind == "day" and year is not None and piece.day < self.today:
+                    piece.kind = "past"         # after the weekday check: a mismatch is reported first (SPEC 3.5)
                 self.take(piece)
-        for pattern in (ORDINAL_DAY, DIA_DAY):
+        for pattern in (ORDINAL_DAY, DIA_DAY, EL_DAY):
             for match in pattern.finditer(self.low):
                 if pattern is ORDINAL_DAY and not ORDINAL_TRIGGER.search(self.low[:match.start()]):
                     continue                    # "the 2nd draft" is no date; "on the 2nd" is
-                self.take(self.month_day_piece(match.start(), match.end(), int(match.group("d"))))
+                if pattern is EL_DAY and not 1 <= int(match.group("d")) <= 31:
+                    continue
+                piece = self.month_day_piece(match.start(), match.end(), int(match.group("d")))
+                self.check_weekday_before(piece)        # "el lunes día 16" (SPEC 3.6)
+                self.take(piece)
         for match in WEEKDAY_NUMBER.finditer(self.low):
             spanish = match.group("wd") in SPANISH_WEEKDAYS
             if not (spanish or match.group("suf") or match.group("the")):
@@ -591,16 +660,23 @@ class Reader:
             self.check_weekday(piece, WEEKDAYS[match.group("wd")])
             self.take(piece)
 
+    def numbers_are_a_date(self, match: re.Match, day: int, month: int) -> bool:
+        """'4/11' and the impossible '13/13' are dates; '50/50' and '24/7' are not. With a dash only a real
+        date whose day is over 12, or after "el": "20-11", "el 5-12" (SPEC 3.6), but "pages 3-5", "9-5"."""
+        if match.group(0) == "24/7" or not (1 <= day <= 31 and 1 <= month <= 31):
+            return False
+        if match.group("sep") == "/":
+            return True
+        return real_date(day, month) and (day > 12 or bool(re.search(r"\bel\s+$", self.low[:match.start()])))
+
     def date_piece(self, start: int, end: int, day: int, month: int, year: Optional[int]) -> Piece:
-        """A day piece for a full date, or the problem with it (no such date, or a year that has gone)."""
+        """A day piece for a full date, or "no_such_date" ("31 February", or a year no calendar has)."""
         when = None
         if real_date(day, month):
-            when = make_date(year, month, day) if year else self.next_date(day, month)
+            when = make_date(year, month, day) if year is not None else self.next_date(day, month)
         if when is None:
-            return Piece("invalid", start, end, code="no_such_date")
-        if year and when < self.today:
-            return Piece("past", start, end)
-        return Piece("day", start, end, day=when)
+            return Piece("invalid", start, end, joins="date", code="no_such_date")
+        return Piece("day", start, end, joins="date", day=when)
 
     def next_date(self, day: int, month: int) -> Optional[date]:
         """A date without a year: the next time it comes round, today included."""
@@ -616,9 +692,9 @@ class Reader:
         for _ in range(13):
             when = make_date(year, month, day)
             if when and when >= self.today:
-                return Piece("day", start, end, day=when)
+                return Piece("day", start, end, joins="date", day=when)
             year, month = (year + 1, 1) if month == 12 else (year, month + 1)
-        return Piece("invalid", start, end, code="no_such_date")
+        return Piece("invalid", start, end, joins="date", code="no_such_date")
 
     def check_weekday_before(self, piece: Piece) -> None:
         """'Monday 5 Nov': take the weekday into the piece and check that it matches the date."""
@@ -635,83 +711,106 @@ class Reader:
 
     def find_clocks(self) -> None:
         """Clock times, from the most explicit form to the loosest."""
-        for match in COLON_TIME.finditer(self.low):                     # 20:00, 20.00, 8:30pm, 9:75
-            hour = match.group("h")
-            if match.group("sep") == "." and not (match.group("mer") or len(hour) == 2
-                                                  or self.time_word_before(match.start())):
-                continue                        # "costs 9.50" is money; "at 9.30" and "20.00" are times
-            if not match.group("mer") and AMOUNT_AFTER.match(self.low, match.end()):
-                continue
-            self.add_clock(match, int(hour), int(match.group("m")), match.group("mer"),
-                           zero_padded=hour.startswith("0") and len(hour) == 2)
+        for match in NOON_MIDNIGHT.finditer(self.low):                  # noon, mediodía, (12) midnight
+            hour = 24 if match.group("w") in ("midnight", "medianoche") else 12
+            self.add_clock(match.span(), hour, 0, exact=True)
+        for match in COLON_TIME.finditer(self.low):                     # 20:00, 20.00, 8:30pm, 9:75, 9,30
+            if self.separator_is_clear(match) and (match.group("mer") or not self.amount_after(match.end())):
+                hour = match.group("h")         # 08:30 and 8:30h are 24-hour times (SPEC 3.6)
+                self.add_clock(match.span(), int(hour), int(match.group("m")), match.group("mer") or "",
+                               exact=hour.startswith("0") or bool(match.group("suffix")))
+        for match in FOUR_DIGIT_TIME.finditer(self.low):                # at 1530, a las 0930 (SPEC 3.6)
+            if not self.amount_after(match.end()):
+                self.add_clock(match.span(), int(match.group("h")), int(match.group("m")),
+                               exact=match.group("h").startswith("0"))
         for match in AM_PM_TIME.finditer(self.low):                     # 8pm, 8 p.m., 13pm
-            self.add_clock(match, int(match.group("h")), 0, match.group("mer"))
-        for match in H_TIME.finditer(self.low):                         # 20h, 20h30 (but not "study 2h")
+            self.add_clock(match.span(), int(match.group("h")), 0, match.group("mer"))
+        for match in H_TIME.finditer(self.low):                         # 20h, 20h30, a las 8h (but not "study 2h")
             hour = int(match.group("h"))
             if match.group("m") or (len(match.group("h")) == 2 and hour != 24) \
-                    or self.time_word_before(match.start()):
-                self.add_clock(match, hour, int(match.group("m") or 0))
-        for match in PAST_TO_TIME.finditer(self.low):                   # half past 9, quarter to 9
+                    or TIME_WORD_BEFORE.search(self.low[:match.start()]):
+                self.add_clock(match.span(), hour, int(match.group("m") or 0), exact=True)
+        for match in PAST_TO_TIME.finditer(self.low):                   # half past 9, quarter to 9, 10 to 6
             self.add_past_to_clock(match)
-        for match in AT_TIME.finditer(self.low):                        # at 9, @ 5, at nine o'clock
+        for match in HALF_HOUR.finditer(self.low):                      # at half 8 = 8:30 (UK, SPEC 3.6)
+            if CLOCK_WORD_BEFORE.search(self.low[:match.start()]):
+                self.add_clock(match.span(), number(match.group("h")), 30)
+        for match in AT_TIME.finditer(self.low):                        # at 9, @ 5, at around nine o'clock
             if match.group("h") == "one" and not match.group("tail"):
                 continue                        # "at one point" is no time
-            if not AMOUNT_AFTER.match(self.low, match.end()):
-                self.add_clock(match, number(match.group("h")), 0)
+            if not self.amount_after(match.end()):
+                self.add_clock(match.span(), number(match.group("h")), 0)
+        for match in BY_TIME.finditer(self.low):                        # be home by 6 = 18:00 (SPEC 3.6)
+            hour = int(match.group("h"))        # the piece is the number: "by" joins it as a deadline word
+            if 1 <= hour <= 24 and not (self.amount_after(match.end()) or UNIT_AFTER.match(self.low, match.end())):
+                self.add_clock(match.span("h"), hour, 0)
         for match in LAS_TIME.finditer(self.low):                       # a las 9, a la una, a las 9 y media
             if match.group("trig").startswith("a") or BEFORE_BARE_LAS.search(self.low[:match.start()]):
                 self.add_las_clock(match)
         for match in LOOSE_TIME.finditer(self.low):                     # 9ish, 9 o'clock, 9 en punto
-            self.add_clock(match, number(match.group("h")), 0)
+            self.add_clock(match.span(), number(match.group("h")), 0)
         for match in NUMBER_BEFORE_PART.finditer(self.low):             # 9 tonight, 5 de la tarde
             hour = int(match.group("h"))                                # (not "page 15 tonight")
             if 1 <= hour <= 12 and not LABEL_BEFORE.search(self.low[:match.start()]):
-                self.add_clock(match, hour, int(match.group("m") or 0))
-        for match in NOON_MIDNIGHT.finditer(self.low):                  # noon, mediodía, midnight
-            hour = 24 if match.group("w") in ("midnight", "medianoche") else 12
-            self.add_clock(match, hour, 0, exact=True)
+                self.add_clock(match.span(), hour, int(match.group("m") or 0))
 
-    def time_word_before(self, position: int) -> bool:
-        """Is there a word like "at", "a las" or "hasta" just before this position?"""
-        return bool(TIME_WORD_BEFORE.search(self.low[:position]))
+    def separator_is_clear(self, match: re.Match) -> bool:
+        """'20:00' is always a time. '9,30' only after 'a las'. '9.30' only with am/pm, a two-digit hour,
+        ':00' minutes ("8.00"), or a time or day word before ("at 9.30", "tomorrow 9.30"): "costs 9.50" is
+        money (SPEC 3.1, 3.6)."""
+        before = self.low[:match.start()]
+        if match.group("sep") == ",":
+            return bool(LAS_BEFORE.search(before))
+        if match.group("sep") == ".":
+            return bool(match.group("mer") or len(match.group("h")) == 2 or match.group("m") == "00"
+                        or TIME_WORD_BEFORE.search(before) or DAY_WORD_BEFORE.search(before))
+        return True
+
+    def amount_after(self, position: int) -> bool:
+        """Is the number just before `position` an amount: "at 20%", "at 30 degrees", "20.50 euros"?"""
+        return bool(AMOUNT_AFTER.match(self.low, position))
 
     def add_past_to_clock(self, match: re.Match) -> None:
-        """'half past 9' is 9:30, 'quarter to 9' is 8:45. '5 to 9' is no time ("change 5 to 9")."""
+        """'half past 9' is 9:30, 'quarter to 9' is 15 minutes before 9. With digits, "10 to 6" needs a time
+        word before it ("at 10 to 6"): "change 5 to 9 slides" and "from 9 to 5" are no times (SPEC 3.6)."""
         mins_text = squash(match.group("mins"))
-        if match.group("dir") == "to" and mins_text.isdigit() and not match.group("word"):
+        if match.group("dir") == "to" and mins_text.isdigit() and not match.group("word") \
+                and not CLOCK_WORD_BEFORE.search(self.low[:match.start()]):
             return
         minutes = 30 if mins_text == "half" else 15 if mins_text.endswith("quarter") else number(mins_text)
-        hour = number(match.group("h"))
         if match.group("dir") == "to":
-            hour, minutes = (hour - 1) or 12, 60 - minutes
-        self.add_clock(match, hour, minutes)
+            self.add_clock(match.span(), number(match.group("h")), 0, before=minutes)
+        else:
+            self.add_clock(match.span(), number(match.group("h")), minutes)
 
     def add_las_clock(self, match: re.Match) -> None:
-        """'a las 9 y media' 9:30, 'a las 9 y cuarto' 9:15, 'a las 9 menos cuarto' 8:45, 'las 9 y 20' 9:20."""
+        """'a las 9 y media' 9:30, 'a las 9 y cuarto' 9:15, 'las 9 y 20' 9:20, 'a las 9 menos cuarto' 15
+        minutes before 9. 'a las 9 menos 70' is invalid, never a crash (SPEC 3.6)."""
         hour, minutes = number(match.group("h")), 0
         extra = squash(match.group("extra") or "")
         if extra:
-            sign, amount_text = extra.split(" ", 1)
-            amount_text = amount_text.replace("minutos", "").replace("minuto", "").strip()
+            amount_text = extra.split(" ", 1)[1].replace("minutos", "").replace("minuto", "").strip()
             minutes = {"media": 30, "cuarto": 15}.get(amount_text) or number(amount_text)
-            if sign == "menos":
-                hour, minutes = (hour - 1) or 12, 60 - minutes
-        self.add_clock(match, hour, minutes)
+        if extra.startswith("menos"):
+            self.add_clock(match.span(), hour, 0, before=minutes)
+        else:
+            self.add_clock(match.span(), hour, minutes)
 
-    def add_clock(self, match: re.Match, hour: int, minute: int, meridiem: Optional[str] = None,
-                  zero_padded: bool = False, exact: bool = False) -> None:
+    def add_clock(self, span: Tuple[int, int], hour: int, minute: int, meridiem: str = "",
+                  exact: bool = False, before: int = 0) -> None:
         """Check the numbers and keep a clock piece, or an invalid piece naming the problem."""
-        code = clock_problem(hour, minute, meridiem or "")
+        start, end = span
+        code = clock_problem(hour, minute, meridiem, before)
         if code:
-            self.take(Piece("invalid", match.start(), match.end(), code=code))
+            self.take(Piece("invalid", start, end, joins="clock", code=code))
             return
-        piece = Piece("clock", match.start(), match.end(), hour=hour, minute=minute)
+        piece = Piece("clock", start, end, joins="clock", hour=hour, minute=minute, before=before)
         if meridiem:                            # 12am is 00:00, 12pm is 12:00, 8pm is 20:00
             piece.hour, piece.exact = hour % 12 + (12 if meridiem == "p" else 0), True
         elif hour == 24:                        # 24:00 and midnight: 00:00 of the next day
             piece.hour, piece.exact, piece.next_day = 0, True, True
-        else:                                   # 20:00, 0:30 and 08:30 are certain; 9:30 is a bare hour
-            piece.exact = exact or hour >= 13 or hour == 0 or zero_padded
+        else:                                   # 20:00, 0:30, 08:30, 20h are certain; 9:30 is a bare hour
+            piece.exact = exact or hour >= 13 or hour == 0
         self.take(piece)
 
     def find_parts(self) -> None:
@@ -721,6 +820,9 @@ class Reader:
             needs = "clock" if phrase in CLOCK_PARTS else "day" if phrase in DAY_PARTS else ""
             self.take(Piece("part", match.start(), match.end(), part=ALL_PARTS[phrase], needs=needs,
                             today=phrase in TODAY_PARTS))
+        for match in DAY_THEN_PART.finditer(self.low):                  # mañana tarde, mañana temprano
+            self.take(Piece("part", match.start("w"), match.end("w"), part=SPANISH_DAY_PARTS[match.group("w")],
+                            needs="day"))
 
     def find_days(self) -> None:
         """'today', 'tomorrow', 'mañana', 'Friday', 'el próximo viernes', 'this weekend', 'next week'."""
@@ -731,23 +833,27 @@ class Reader:
             self.take(Piece("day", match.start(), match.end(), day=self.today + timedelta(days=DAYS_AHEAD[word])))
         for match in WEEKDAY_WORD.finditer(self.low):
             if self.weekday_is_clear(match):
-                self.take(Piece("day", match.start(), match.end(), weekday=WEEKDAYS[match.group("wd")],
+                self.take(Piece("day", match.start(), match.end(), joins="date",
+                                weekday=WEEKDAYS[match.group("wd")],
                                 skip_today=bool(match.group("next") or match.group("later"))))
         for match in WEEKEND.finditer(self.low):
-            self.take(Piece("day", match.start(), match.end(),
-                            day=self.weekend(bool(match.group("next") or match.group("later")))))
+            self.take(Piece("day", match.start(), match.end(), joins="date",
+                            day=self.weekend(WEEKEND_WORDS[squash(match.group("w"))])))
         for match in NEXT_WEEK.finditer(self.low):                       # Monday of next week
             self.take(Piece("day", match.start(), match.end(),
                             day=self.today + timedelta(days=7 - self.today.weekday())))
         for match in MONTH_END.finditer(self.low):                       # last day of this month
             last = calendar.monthrange(self.today.year, self.today.month)[1]
-            self.take(Piece("day", match.start(), match.end(), day=self.today.replace(day=last)))
+            self.take(Piece("day", match.start(), match.end(), joins="date", day=self.today.replace(day=last)))
 
     def weekday_is_clear(self, match: re.Match) -> bool:
-        """'sun', 'sat', 'wed', 'mon' are also English words: they need 'on', 'next', 'this' or a number."""
-        if match.group("wd") not in SHORT_DAYS_THAT_ARE_WORDS or match.group("this") or match.group("next"):
+        """'sun', 'sat', 'wed', 'mon' are also English words: they need 'on', 'next', 'this' or a number.
+        Spanish short days count only right after "el" ("el vie", SPEC 3.6)."""
+        word, before = match.group("wd"), self.low[:match.start()]
+        if word in SPANISH_SHORT_DAYS:
+            return bool(re.search(r"\bel\s+$", before) or match.group("next"))
+        if word not in SHORT_DAYS_THAT_ARE_WORDS or match.group("this") or match.group("next"):
             return True
-        before = self.low[:match.start()]
         return bool(re.search(r"\b(?:on|by|until|till|before|due|from|el)\s+$", before)
                     or re.match(r"\s+\d", self.low[match.end():]))
 
@@ -766,10 +872,10 @@ class Reader:
             clear = squash(match.group("w")) in ("right now", "ahora mismo")
             if clear or not (NOT_NOW_BEFORE.search(self.low[:match.start()])
                              or NOT_NOW_AFTER.match(self.low, match.end())):
-                self.take(Piece("now", match.start(), match.end()))
+                self.take(Piece("now", match.start(), match.end(), joins=""))
         match = LAST_YA.search(self.low)
         if match:
-            self.take(Piece("now", match.start(), match.start() + 2))
+            self.take(Piece("now", match.start(), match.start() + 2, joins=""))
 
     def find_vague(self) -> None:
         """'at some point', 'soon', 'later', 'luego', 'en un rato': reported, and dropped from the title."""
@@ -784,9 +890,11 @@ class Reader:
 
     def attach_connectors(self, piece: Piece) -> None:
         """Grow the span over little words stuck to the time ('by', 'at', 'el', 'antes de', 'como tarde').
-        Delays and "now" already hold their own first word ("in", "en"): "turn the oven on in 20 min"."""
-        while piece.kind not in ("relative", "now"):
-            match = LEFT_WORD.search(self.low[:piece.left])
+        Each kind takes only its own connectors (SPEC 3.6): "on" joins "on Friday" but not "at 7pm" in "turn
+        the heating on at 7pm". Delays and "now" hold their own first word: "turn the oven on in 20 min"."""
+        left_word = LEFT_WORDS.get(piece.joins)
+        while left_word:
+            match = left_word.search(self.low[:piece.left])
             if not match or any(self.taken[match.start():piece.left]):
                 break
             piece.left = match.start()
@@ -799,18 +907,35 @@ class Reader:
             self.taken[index] = True
 
     def drop_lonely_parts(self) -> None:
-        """'de la tarde' counts only right after a clock time, 'morning' only right after a day
-        (or right after an impossible or past one: "a las 26 de la tarde", "yesterday morning")."""
-        allowed_before = {"clock": ("clock", "invalid"), "day": ("day", "invalid", "past")}
+        """'de la tarde' counts only right after a clock time, 'morning' only right after a day. Right after
+        a problem ("a las 26 de la tarde", "yesterday morning") or a day it cannot complete ("mañana de
+        madrugada": no hour, so the default one) it means nothing, but its words join that piece's span."""
         kept: List[Piece] = []
         for piece in self.pieces:
             if piece.kind == "part" and piece.needs:
                 before = next((p for p in reversed(kept) if p.kind not in ("vague", "recurring")), None)
-                if not (before and before.kind in allowed_before[piece.needs] and self.glued(before, piece)):
+                if not (before and self.glued(before, piece)):
                     continue
-                if before.kind in ("invalid", "past"):     # it belongs to the problem: only its span is kept
-                    before.right = piece.right
+                if before.kind != piece.needs:
+                    if before.kind in ("invalid", "past", "day"):
+                        before.right = piece.right
                     continue
+            kept.append(piece)
+        self.pieces = kept
+
+    def drop_task_adjectives(self) -> None:
+        """'weekly report', 'daily planner' are tasks: 'daily', 'weekly', 'monthly' with a task word right
+        after them describe it. At the end, before a time, a comma or filler they repeat ("water the plants
+        daily", "daily at 9", "Daily, run", "monthly please", "remind me weekly to call mum", SPEC 3.6)."""
+        kept: List[Piece] = []
+        for index, piece in enumerate(self.pieces):
+            following = self.pieces[index + 1] if index + 1 < len(self.pieces) else None
+            next_word = re.match(r"\s+([a-z]+)", self.low[piece.right:])
+            describes_task = next_word and next_word.group(1) not in NOT_TASK_WORDS \
+                and not (following and self.glued(piece, following))
+            adjective = piece.kind == "recurring" and self.low[piece.start:piece.end] in REPEAT_ADJECTIVES
+            if adjective and describes_task:
+                continue
             kept.append(piece)
         self.pieces = kept
 
@@ -827,15 +952,23 @@ class Reader:
         return any(p.kind == "vague" and p.left <= index < p.right for p in self.pieces)
 
     def time_groups(self) -> List[List[Piece]]:
-        """Pieces that can make a time, grouped when they sit next to each other."""
+        """Pieces that can make a time, grouped when they sit next to each other and fill different slots.
+        When a piece cannot join, the piece before it moves along if a comma cut it off from its own group:
+        "at 5, tomorrow at 6" is "at 5" and "tomorrow at 6", and combine() keeps the second (SPEC 3.6)."""
         groups: List[List[Piece]] = []
         for piece in self.pieces:
             if piece.kind not in USABLE:
                 continue
-            if groups and self.glued(groups[-1][-1], piece):
-                groups[-1].append(piece)
-            else:
-                groups.append([piece])
+            group = groups[-1] if groups else []
+            if group and self.glued(group[-1], piece):
+                if not slots_of(group) & SLOTS[piece.kind]:
+                    group.append(piece)
+                    continue
+                if len(group) > 1 and "," in self.low[group[-2].right:group[-1].left] \
+                        and not SLOTS[group[-1].kind] & SLOTS[piece.kind]:
+                    groups.append([group.pop(), piece])
+                    continue
+            groups.append([piece])
         return groups
 
     def two_tasks(self, groups: List[List[Piece]]) -> bool:
@@ -860,18 +993,15 @@ class Reader:
     def combine(groups: List[List[Piece]]) -> List[Piece]:
         """Join groups that complete each other ('tomorrow ... at 5'). If two say the same thing differently
         ('Friday ... Saturday'), keep only the first full time: a day with a time of day, else the first group
-        (SPEC 3.5). So "hoy no, mañana a las 8" is tomorrow at 8."""
-        def slots(group: List[Piece]) -> set:
-            return set().union(*(SLOTS[piece.kind] for piece in group))
-
+        (SPEC 3.5, 3.6). So "hoy no, mañana a las 8" is tomorrow at 8."""
         merged: List[Piece] = []
         used: set = set()
         for group in groups:
-            if slots(group) & used:
-                full = [g for g in groups if "day" in slots(g) and slots(g) & {"clock", "part"}]
+            if slots_of(group) & used:
+                full = [g for g in groups if "day" in slots_of(g) and slots_of(g) & {"clock", "part"}]
                 return full[0] if full else groups[0]
             merged += group
-            used |= slots(group)
+            used |= slots_of(group)
         return merged
 
     def in_text(self, start: int, end: int) -> Span:
@@ -951,7 +1081,7 @@ class Reader:
     def time_of_day(self, clock: Optional[Piece], part: Optional[Piece]) -> Tuple[int, int, bool]:
         """(hour, minute, next_day) when the day is known: the clock, else the part of day, else the default."""
         if clock:
-            return (clock.hour if clock.exact else hour_with_day(clock.hour)), clock.minute, clock.next_day
+            return clock.wall_time(clock.hour if clock.exact else hour_with_day(clock.hour))
         if part:
             return PART_HOURS[part.part][0], 0, False
         return self.default_hour, 0, False
@@ -1003,20 +1133,22 @@ class Reader:
         return self.ok(self.at(self.today + DAY, first_hour), stated=True)   # "por la mañana" said at 15:00
 
     def clock_alone(self, clock: Piece) -> TimeResult:
-        """A clock time with no day (SPEC 3.1 bare-hour rule and SPEC 3.4)."""
-        if clock.next_day:                      # midnight: the coming one
-            return self.ok(self.at(self.today + DAY, 0, 0), stated=True)
-        if clock.exact:                         # 20:00, 9pm: today if still ahead, else tomorrow
-            target = self.at(self.today, clock.hour, clock.minute)
+        """A clock time with no day (SPEC 3.1 bare-hour rule and SPEC 3.4). An exact time (20:00, 9pm,
+        midnight, "2 de la noche") is the coming one: today if still ahead, else tomorrow."""
+        if clock.exact:
+            hour, minute, _ = clock.wall_time(clock.hour)
+            target = self.at(self.today, hour, minute)
             if not self.ahead(target):
-                target = self.at(self.today + DAY, clock.hour, clock.minute)
+                target = self.at(self.today + DAY, hour, minute)
             return self.ok(target, stated=True)
-        for hour in (clock.hour, clock.hour + 12):   # "at 9": 09:00 or 21:00, the first still ahead in 07-22
-            if FIRST_DAY_HOUR <= hour <= LAST_DAY_HOUR:
-                target = self.at(self.today, hour, clock.minute)
+        for named in (clock.hour, clock.hour + 12):  # "at 9": 09:00 or 21:00, the first still ahead in 07-22
+            if FIRST_DAY_HOUR <= named <= LAST_DAY_HOUR:
+                hour, minute, _ = clock.wall_time(named)
+                target = self.at(self.today, hour, minute)
                 if self.ahead(target):
                     return self.ok(target, stated=True)
-        return self.ok(self.at(self.today + DAY, hour_with_day(clock.hour), clock.minute), stated=True)
+        hour, minute, _ = clock.wall_time(hour_with_day(clock.hour))
+        return self.ok(self.at(self.today + DAY, hour, minute), stated=True)
 
     def about_an_hour(self) -> datetime:
         """Now plus an hour, rounded up to the next 5 minutes (14:23 -> 15:25)."""
