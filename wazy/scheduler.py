@@ -135,8 +135,9 @@ class Scheduler:
             return
         try:
             self.on_message(user_id, message_id, reply)
-        except Exception:               # the message is stored and shown in the chat; log the id only, never text
-            log.exception("on_message failed for message %s", message_id)
+        except Exception as error:      # the message is stored and shown in the chat. Log the id and the error
+            # type only: an error message could quote the text, and message text never goes in logs (promise 8).
+            log.warning("on_message failed for message %s (%s)", message_id, type(error).__name__)
 
     # ----- the nudge after Later -----
     def later_time(self, user: dict, now: datetime) -> datetime:
