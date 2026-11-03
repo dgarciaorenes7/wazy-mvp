@@ -718,3 +718,20 @@ class LearningLoopTest(SchedulerTest):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BrokenZoneTest(unittest.TestCase):
+    """A damaged database could hold a zone name that does not exist. The scheduler must not crash on it."""
+
+    def test_nudge_and_later_time_fall_back_to_the_default_zone(self):
+        db = Database(":memory:")
+        self.addCleanup(db.close)
+        now = datetime(2026, 11, 3, 9, 0, tzinfo=timezone.utc)
+        db.user("web:broken", now)
+        db.update_user("web:broken", tz="Mars/Base")
+        db.execute("INSERT INTO commitments (user_id, raw_text, title, nudge_at, status, created_at) "
+                   "VALUES ('web:broken', 'x', 'Call mum', ?, 'scheduled', ?)", (to_db(now), to_db(now)))
+        scheduler = Scheduler(db)
+        self.assertEqual(scheduler.run_due(now.replace(hour=10)), 1)          # an hour late: says when it was due
+        later = scheduler.later_time(db.user("web:broken", now), now)
+        self.assertEqual(later.utcoffset().total_seconds(), 3600)             # Europe/Madrid in November

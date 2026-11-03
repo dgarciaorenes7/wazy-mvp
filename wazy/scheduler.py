@@ -23,7 +23,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Callable, List, Optional
-from zoneinfo import ZoneInfo
 
 from . import learning
 from .db import Database, from_db, to_db
@@ -78,19 +77,18 @@ class Scheduler:
                             "JOIN users u ON u.id = c.user_id WHERE c.id = ?", (commitment_id,))
             self.db.execute("INSERT INTO nudge_outcomes (commitment_id, user_id, scheduled_for, nudged_at, outcome) "
                             "VALUES (?, ?, ?, ?, 'pending')", (commitment_id, c["user_id"], c["nudge_at"], to_db(now)))
-            text = render("nudge", c["lang"], title=c["title"], due_text=self._due_text(c["nudge_at"], c["tz"], now))
+            text = render("nudge", c["lang"], title=c["title"], due_text=self._due_text(c["nudge_at"], c, now))
             message_id = self.db.add_message(c["user_id"], "bot", text, "nudge", c["lang"], commitment_id, now)
         reply = Reply(kind="nudge", text=text, lang=c["lang"], commitment_id=commitment_id, buttons=True)
         self._deliver(c["user_id"], message_id, reply)
         return True
 
-    @staticmethod
-    def _due_text(nudge_at: str, tz: str, now: datetime) -> str:
+    def _due_text(self, nudge_at: str, user: dict, now: datetime) -> str:
         """'' when the nudge is on time, else the local clock time it was due, e.g. '09:00'."""
         due = from_db(nudge_at)
         if now - due <= LATE_AFTER:
             return ""
-        return due.astimezone(ZoneInfo(tz)).strftime("%H:%M")
+        return due.astimezone(learning.person_zone(self.db, user)).strftime("%H:%M")
 
     # ----- closing nudges nobody answered -----
     def _close_unanswered(self, now: datetime) -> None:
@@ -143,7 +141,7 @@ class Scheduler:
     # ----- the nudge after Later -----
     def later_time(self, user: dict, now: datetime) -> datetime:
         """When to nudge again after Later, as an aware datetime on the person's clock (user["tz"])."""
-        zone = ZoneInfo(user["tz"])
+        zone = learning.person_zone(self.db, user)      # falls back to the default zone if the name is broken
         if self.later_minutes:
             return (now.astimezone(UTC) + timedelta(minutes=self.later_minutes)).astimezone(zone)
         local = now.astimezone(zone)

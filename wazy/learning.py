@@ -68,7 +68,7 @@ def evidence(db: Database, user_id: str) -> dict:
     {"answered": n, "done": n}}, over all answered nudges looked at).
     """
     user = _user(db, user_id)
-    zone = _zone(db, user)
+    zone = person_zone(db, user)
     current = usual_hour(user)
     rows = _last_answered_nudges(db, user_id)
     by_hour: dict = {}
@@ -227,9 +227,10 @@ def _user(db: Database, user_id: str) -> dict:
     return user
 
 
-def _zone(db: Database, user: dict) -> ZoneInfo:
+def person_zone(db: Database, user: dict) -> ZoneInfo:
     """The person's time zone. A broken name (only possible in a damaged database) gives the server's zone,
     as conversation.zone_or_default does (not imported from there: conversation.py imports this file).
+    The scheduler uses it too.
     """
     try:
         return ZoneInfo(user["tz"])
