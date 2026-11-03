@@ -341,11 +341,12 @@ class NeverTwiceTest(SchedulerTest):
             raise RuntimeError("network down")
 
         scheduler = Scheduler(self.db, on_message=broken)
-        with self.assertLogs("wazy.scheduler", level="ERROR") as logs:
+        with self.assertLogs("wazy.scheduler", level="WARNING") as logs:
             self.assertEqual(scheduler.run_due(NOW), 2)
         self.assertEqual(calls, [first, second])
         self.assertEqual(len(self.nudge_messages()), 2)        # both stay in the chat
         self.assertNotIn("First", "\n".join(logs.output))      # message text is never logged
+        self.assertNotIn("network down", "\n".join(logs.output))   # nor the error's own message
 
 
 # =============================================================================================
