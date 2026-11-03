@@ -195,8 +195,10 @@ REPEAT_WORDS = ["daily", "weekly", "monthly", "yearly", "annually", "hourly", "n
 DEADLINE_WORDS = {"no later than", "not later than", "by", "before", "until", "till", "til", "due",
                   "antes de", "antes del", "para", "como tarde", "como muy tarde", "hasta",
                   "a mas tardar", "at the latest", "at the very latest"}
+# ("in" is not here: "in 2 hours" and "in the morning" are inside their own patterns, and "check in tomorrow"
+# must keep its "in".)
 LEFT_CONNECTORS = DEADLINE_WORDS | {
-    "at", "on", "in", "for", "from", "around", "about", "el", "del", "de", "a", "al", "en", "dentro de",
+    "at", "on", "for", "from", "around", "about", "el", "del", "de", "a", "al", "en", "dentro de",
     "sobre", "hacia", "desde", "a eso de", "eso de"}
 RIGHT_CONNECTORS = {"como tarde", "como muy tarde", "at the latest", "at the very latest", "a mas tardar",
                     "sharp"}
@@ -400,6 +402,12 @@ def with_part(clock: Piece, part: str) -> Piece:
     return replace(clock, hour=hour, exact=True, next_day=next_day)
 
 
+def earlier(first: datetime, second: datetime) -> bool:
+    """Is `first` really before `second`? Python compares two times of the same zone by their wall clock,
+    which is wrong in the autumn hour that happens twice, so we compare real timestamps instead."""
+    return first.timestamp() < second.timestamp()
+
+
 def day_or_next(day: date, next_day: bool) -> date:
     """The day itself, or the day after it for a time like midnight that belongs to the next day."""
     return day + DAY if next_day else day
@@ -510,15 +518,14 @@ class Reader:
             self.attach_connectors(piece)
         self.drop_lonely_parts()
 
-    def take(self, piece: Piece) -> bool:
+    def take(self, piece: Piece) -> None:
         """Keep a piece, unless an earlier rule already used some of its characters."""
         if any(self.taken[piece.start:piece.end]):
-            return False
+            return
         for index in range(piece.start, piece.end):
             self.taken[index] = True
         piece.left, piece.right = piece.start, piece.end
         self.pieces.append(piece)
-        return True
 
     def find_simple(self, kind: str, patterns: List[re.Pattern]) -> None:
         """Pieces whose meaning is just their kind: repeating words and words about the past."""
@@ -533,6 +540,7 @@ class Reader:
                 self.take(self.delay_piece(match))
 
     def delay_piece(self, match: re.Match) -> Piece:
+        """The piece for one delay: exact under a day, a fixed date from a day on, vague for "a few days"."""
         start, end = match.start(), match.end()
         unit = UNIT_OF[match.group("unit")]
         count = amount(match.group("qty"))
@@ -564,8 +572,9 @@ class Reader:
                 parts = match.groupdict()
                 day = int(parts["d"])
                 month = MONTHS[parts["mon"]] if parts.get("mon") else int(parts.get("mo") or 0)
-                if pattern is NUMERIC_DATE and not self.slash_is_date(match.group(0), day, month):
-                    continue
+                not_a_date = not (1 <= day <= 31 and 1 <= month <= 31) or match.group(0) == "24/7"
+                if pattern is NUMERIC_DATE and not_a_date:
+                    continue                    # "50/50" and "24/7" are no dates; "4/11" (or the impossible 13/13) is
                 piece = self.date_piece(match.start(), match.end(), day, month, full_year(parts.get("y")))
                 self.check_weekday_before(piece)
                 self.take(piece)
@@ -581,11 +590,6 @@ class Reader:
             piece = self.month_day_piece(match.start(), match.end(), int(match.group("d")))
             self.check_weekday(piece, WEEKDAYS[match.group("wd")])
             self.take(piece)
-
-    @staticmethod
-    def slash_is_date(text: str, day: int, month: int) -> bool:
-        """'4/11' is a date; '50/50' and '24/7' are not. Both numbers must be between 1 and 31."""
-        return 1 <= day <= 31 and 1 <= month <= 31 and text != "24/7"
 
     def date_piece(self, start: int, end: int, day: int, month: int, year: Optional[int]) -> Piece:
         """A day piece for a full date, or the problem with it (no such date, or a year that has gone)."""
@@ -668,6 +672,7 @@ class Reader:
             self.add_clock(match, hour, 0, exact=True)
 
     def time_word_before(self, position: int) -> bool:
+        """Is there a word like "at", "a las" or "hasta" just before this position?"""
         return bool(TIME_WORD_BEFORE.search(self.low[:position]))
 
     def add_past_to_clock(self, match: re.Match) -> None:
@@ -778,8 +783,9 @@ class Reader:
             self.take(Piece("vague", match.start(), match.end()))
 
     def attach_connectors(self, piece: Piece) -> None:
-        """Grow the span over little words stuck to the time ('by', 'at', 'el', 'antes de', 'como tarde')."""
-        while True:
+        """Grow the span over little words stuck to the time ('by', 'at', 'el', 'antes de', 'como tarde').
+        Delays and "now" already hold their own first word ("in", "en"): "turn the oven on in 20 min"."""
+        while piece.kind not in ("relative", "now"):
             match = LEFT_WORD.search(self.low[:piece.left])
             if not match or any(self.taken[match.start():piece.left]):
                 break
@@ -817,6 +823,7 @@ class Reader:
         return GLUE.fullmatch(gap) is not None
 
     def inside_vague(self, index: int) -> bool:
+        """Is this position inside a vague word ("soon", "luego")?"""
         return any(p.kind == "vague" and p.left <= index < p.right for p in self.pieces)
 
     def time_groups(self) -> List[List[Piece]]:
@@ -851,16 +858,20 @@ class Reader:
 
     @staticmethod
     def combine(groups: List[List[Piece]]) -> List[Piece]:
-        """Join groups that complete each other ('tomorrow ... at 5'). If two say the same thing
-        differently ('Friday ... Saturday'), keep the first one only (SPEC 3.5: prefer the first time)."""
+        """Join groups that complete each other ('tomorrow ... at 5'). If two say the same thing differently
+        ('Friday ... Saturday'), keep only the first full time: a day with a time of day, else the first group
+        (SPEC 3.5). So "hoy no, mañana a las 8" is tomorrow at 8."""
+        def slots(group: List[Piece]) -> set:
+            return set().union(*(SLOTS[piece.kind] for piece in group))
+
         merged: List[Piece] = []
         used: set = set()
         for group in groups:
-            slots = set().union(*(SLOTS[piece.kind] for piece in group))
-            if slots & used:
-                return groups[0]
+            if slots(group) & used:
+                full = [g for g in groups if "day" in slots(g) and slots(g) & {"clock", "part"}]
+                return full[0] if full else groups[0]
             merged += group
-            used |= slots
+            used |= slots(group)
         return merged
 
     def in_text(self, start: int, end: int) -> Span:
@@ -905,9 +916,9 @@ class Reader:
         """One group of pieces ('Friday' + 'at 5') becomes a moment; then the final checks (SPEC 3.4)."""
         result = self.moment(group)
         if result.status == "ok":
-            if result.when < self.now - TOLERANCE:
+            if self.from_now(result.when) < -TOLERANCE:
                 result = TimeResult("past")
-            elif result.when - self.now > MAX_AHEAD:
+            elif self.from_now(result.when) > MAX_AHEAD:
                 result = TimeResult("too_far")
             else:
                 result.deadline = any(piece.deadline for piece in group)
@@ -916,6 +927,7 @@ class Reader:
         return result
 
     def moment(self, group: List[Piece]) -> TimeResult:
+        """The moment one group means: a delay, or a day (maybe today) with a clock time or part of day."""
         def first(kind: str) -> Optional[Piece]:
             return next((piece for piece in group if piece.kind == kind), None)
 
@@ -929,7 +941,7 @@ class Reader:
         if day is None and part and part.today:
             return self.on_today(clock, part)
         if day is None:
-            return self.clock_alone(clock) if clock else self.part_alone(part)
+            return self.clock_alone(clock) if clock else self.part_today(part, said_today=False)
         if day.weekday >= 0:
             return self.on_day(self.weekday_date(day, clock, part), clock, part)
         if day.day == self.today:
@@ -949,7 +961,7 @@ class Reader:
         hour, minute, next_day = self.time_of_day(clock, part)
         ahead = (day.weekday - self.today.weekday()) % 7
         if ahead == 0 and (day.skip_today or
-                           self.at(day_or_next(self.today, next_day), hour, minute) <= self.now):
+                           not self.ahead(self.at(day_or_next(self.today, next_day), hour, minute))):
             ahead = 7
         return self.today + timedelta(days=ahead)
 
@@ -963,34 +975,32 @@ class Reader:
         if clock:
             hour, minute, next_day = self.time_of_day(clock, None)
             target = self.at(day_or_next(self.today, next_day), hour, minute)
-            if target >= self.now - TOLERANCE:
+            if self.from_now(target) >= -TOLERANCE:
                 return self.ok(target, stated=True)
-            if self.now - target <= LATE_GRACE:
+            if -self.from_now(target) <= LATE_GRACE:
                 return self.ok(self.after(SOON), stated=True)
             return TimeResult("past")
         if part:
             return self.part_today(part, said_today=True)
         target = self.at(self.today, self.default_hour)
-        if target > self.now:
+        if self.ahead(target):
             return self.ok(target, stated=False)
         return self.fallback(self.about_an_hour())
 
     def part_today(self, part: Piece, said_today: bool) -> TimeResult:
-        """A part of day with no clock time. Said after its hour but before it ends: about an hour from now."""
+        """A part of day with no clock time ("tonight", "por la tarde"): today at its hour if still ahead.
+        Said after its hour but before it ends: about an hour from now. After it ends: "past" if the person
+        said today ("this morning"), else the same part tomorrow ("por la mañana" said at 15:00)."""
         first_hour, end_hour = PART_HOURS[part.part]
         target = self.at(self.today, first_hour)
-        if target > self.now:
+        if self.ahead(target):
             return self.ok(target, stated=True)
         soon = self.about_an_hour()
-        if soon < self.at(self.today, end_hour):
+        if earlier(soon, self.at(self.today, end_hour)):
             return self.fallback(soon)
         if said_today:                          # "this morning" said in the afternoon
             return TimeResult("past")
         return self.ok(self.at(self.today + DAY, first_hour), stated=True)   # "por la mañana" said at 15:00
-
-    def part_alone(self, part: Piece) -> TimeResult:
-        """'por la tarde', 'in the morning': today if still possible, else tomorrow."""
-        return self.part_today(part, said_today=False)
 
     def clock_alone(self, clock: Piece) -> TimeResult:
         """A clock time with no day (SPEC 3.1 bare-hour rule and SPEC 3.4)."""
@@ -998,13 +1008,13 @@ class Reader:
             return self.ok(self.at(self.today + DAY, 0, 0), stated=True)
         if clock.exact:                         # 20:00, 9pm: today if still ahead, else tomorrow
             target = self.at(self.today, clock.hour, clock.minute)
-            if target <= self.now:
+            if not self.ahead(target):
                 target = self.at(self.today + DAY, clock.hour, clock.minute)
             return self.ok(target, stated=True)
         for hour in (clock.hour, clock.hour + 12):   # "at 9": 09:00 or 21:00, the first still ahead in 07-22
             if FIRST_DAY_HOUR <= hour <= LAST_DAY_HOUR:
                 target = self.at(self.today, hour, clock.minute)
-                if target > self.now:
+                if self.ahead(target):
                     return self.ok(target, stated=True)
         return self.ok(self.at(self.today + DAY, hour_with_day(clock.hour), clock.minute), stated=True)
 
@@ -1018,14 +1028,23 @@ class Reader:
 
     def fallback(self, soon: datetime) -> TimeResult:
         """A time Wazy chooses never lands after 22:00: then it is the default hour tomorrow (SPEC 7)."""
-        if soon > self.at(self.today, LAST_FALLBACK_HOUR):
+        if earlier(self.at(self.today, LAST_FALLBACK_HOUR), soon):
             return self.ok(self.at(self.today + DAY, self.default_hour), stated=False)
         return self.ok(soon, stated=False)
 
     # -- clock helpers --
 
+    def from_now(self, moment: datetime) -> timedelta:
+        """Real time from now until `moment` (negative if it has gone)."""
+        return timedelta(seconds=moment.timestamp() - self.now.timestamp())
+
+    def ahead(self, moment: datetime) -> bool:
+        """Is `moment` still to come?"""
+        return earlier(self.now, moment)
+
     @staticmethod
     def ok(when: datetime, stated: bool) -> TimeResult:
+        """A usable time. `stated`: the person gave the time of day (or a short delay), not just a day."""
         return TimeResult("ok", when=when, stated=stated)
 
     def after(self, delta: timedelta, start: Optional[datetime] = None) -> datetime:
