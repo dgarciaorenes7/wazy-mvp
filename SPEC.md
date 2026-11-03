@@ -487,7 +487,8 @@ signatures). Twilio settings are all-or-nothing: some set and some missing -> re
   + sorted params, compared with `hmac.compare_digest`); bad or missing signature -> 403. Duplicate `MessageSid`
   -> 200 and ignored. Body: `From`, `Body`, `ButtonPayload` (e.g. "done:12"/"later:12"), `ButtonText`.
   Reply 200 with empty TwiML; Wazy's answers go out through the REST API (outbox), not in the HTTP response.
-- Local = client address 127.0.0.1/::1 AND no `X-Forwarded-For`/`Forwarded`/`X-Real-IP` header.
+- Local = client address 127.0.0.1/::1 AND no `X-Forwarded-For`/`Forwarded`/`X-Real-IP` header AND a `Host`
+  of localhost, 127.0.0.1 or [::1] (any port), which blocks DNS rebinding (added after the security review).
 - Every POST: JSON only (415 otherwise; the webhook takes form data), same-origin `Origin` if present (403),
   body <= 4096 bytes (413), JSON object (400). Security headers on every reply (nosniff, no-referrer,
   frame SAMEORIGIN, CSP on HTML, no-store). Message text never logged.

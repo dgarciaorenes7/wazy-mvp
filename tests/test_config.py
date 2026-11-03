@@ -138,6 +138,11 @@ BAD = [
     ({"WAZY_PUBLIC_URL": "https://wazy.example.com/?a=1"}, "WAZY_PUBLIC_URL"),
     ({"WAZY_PUBLIC_URL": "https://wazy.example.com/#top"}, "WAZY_PUBLIC_URL"),
     ({"WAZY_PUBLIC_URL": "https://wazy example.com"}, "WAZY_PUBLIC_URL"),
+    ({"WAZY_PUBLIC_URL": "https://wazy.example.com:99999"}, "WAZY_PUBLIC_URL"),
+    ({"WAZY_PUBLIC_URL": "https://wazy.example.com:abc"}, "WAZY_PUBLIC_URL"),
+    ({"WAZY_PUBLIC_URL": "https://wazy.example.com:0"}, "WAZY_PUBLIC_URL"),
+    ({"WAZY_PUBLIC_URL": "https://wazy.example.com/?"}, "WAZY_PUBLIC_URL"),
+    ({"WAZY_PUBLIC_URL": "https://wazy.example.com#"}, "WAZY_PUBLIC_URL"),
 ]
 
 
@@ -188,7 +193,8 @@ class Secrets(unittest.TestCase):
     def test_messages_never_repeat_a_secret(self):
         cases = [{"ANTHROPIC_API_KEY": "sk-ant-SECRET VALUE"}, {"WAZY_ACCESS_CODE": "SECRET!"},
                  {"WAZY_ADMIN_CODE": "SECRET"}, {**TWILIO, "TWILIO_AUTH_TOKEN": "SECRET"},
-                 {**TWILIO, "TWILIO_ACCOUNT_SID": "SECRET"}]
+                 {**TWILIO, "TWILIO_ACCOUNT_SID": "SECRET"},
+                 {"WAZY_PUBLIC_URL": "https://user:SECRET@wazy.example.com"}]
         for env in cases:
             with self.subTest(env=sorted(env)):
                 with self.assertRaises(ConfigError) as caught:

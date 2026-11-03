@@ -1,7 +1,7 @@
 """The web server: the chat page, the presenter view, a small JSON API and the WhatsApp webhook.
 
 Who can reach what:
-  * This computer (a loopback address and no proxy or tunnel headers): everything.
+  * This computer (a loopback address, no proxy or tunnel headers, and a loopback Host): everything.
   * Another browser: the chat only, after opening the access link once (/?k=CODE). The code then moves
     into an HttpOnly cookie. Each browser also gets its own random id cookie, so every tester has a
     separate conversation: user_id = "web:" + that id. This computer is always "web:local".
@@ -16,6 +16,8 @@ The terminal stays quiet: no request lines (a link can hold the access code) and
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import hmac
 import json
 import re
@@ -47,7 +49,9 @@ ADMIN_COOKIE_AGE = 24 * 3600            # a day
 
 LOCAL_ADDRESSES = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "X-Real-IP")
+LOCAL_HOST = re.compile(r"(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?", re.IGNORECASE)   # Host of a page opened here
 USER_TOKEN = re.compile(r"^[0-9a-f]{32}$")                     # 128 random bits as hex
+LARGEST_ID = 10 ** 18 - 1                                      # SQLite whole numbers stop just above 9 * 10**18
 STATIC_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9]+)+$")   # no folders, no "..", no "%"
 STATIC_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
                 ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon",
@@ -60,10 +64,11 @@ HTML_TYPE = "text/html; charset=utf-8"
 EMPTY_TWIML = b'<?xml version="1.0" encoding="UTF-8"?><Response/>'
 SECURITY_HEADERS = (("X-Content-Type-Options", "nosniff"), ("Referrer-Policy", "no-referrer"),
                     ("X-Frame-Options", "SAMEORIGIN"), ("Cache-Control", "no-store"))
-CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
-       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
-       "img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'self'; "
-       "base-uri 'none'; form-action 'self'")
+# Content-Security-Policy for HTML pages. Nothing comes from another website. {scripts} becomes the hashes
+# of the page's own inline scripts (see page_csp). Styles may be inline: the pages keep their CSS in <style>.
+CSP = ("default-src 'self'; script-src 'self'{scripts}; style-src 'self' 'unsafe-inline'; img-src 'self'; "
+       "connect-src 'self'; object-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'")
+INLINE_SCRIPT = re.compile(rb"<script>(.*?)</script>", re.DOTALL)   # a <script> with attributes gets no hash: blocked
 FORBIDDEN_PAGE = ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
                   "<title>Wazy</title><body style='font-family:sans-serif;padding:24px'><h2>Wazy test server</h2>"
                   "<p>Scan the QR code on the presenter's screen to open the chat.</p>"
@@ -89,14 +94,37 @@ def reply_json(reply: Any) -> dict:
 
 
 def whole_number(value: Any) -> Optional[int]:
-    """12 or "12" -> 12. Anything else (true, 1.5, "x", -3) -> None."""
+    """12 or "12" -> 12. Anything else (true, 1.5, "x", -3, a number too big for the database) -> None."""
     if isinstance(value, bool):
         return None
-    if isinstance(value, int) and value >= 0:
+    if isinstance(value, int) and 0 <= value <= LARGEST_ID:     # bigger numbers would crash the database query
         return value
     if isinstance(value, str) and re.match(r"^[0-9]{1,18}$", value):
         return int(value)
     return None
+
+
+def can_store(text: str) -> bool:
+    """False for text the database cannot save: JSON may carry half of an emoji ("\\ud83d") on its own."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def page_csp(page: bytes) -> str:
+    """The Content-Security-Policy for one HTML page.
+
+    Only the page's own inline <script> blocks may run: each is allowed by the SHA-256 hash of its exact text,
+    so a script that got into the page any other way would not run. The hashes are worked out from the bytes
+    we are about to send, so they always match the page.
+    """
+    hashes = ""
+    for script in INLINE_SCRIPT.findall(page):
+        digest = base64.b64encode(hashlib.sha256(script).digest()).decode("ascii")
+        hashes += f" 'sha256-{digest}'"
+    return CSP.format(scripts=hashes)
 
 
 def static_file(name: str) -> Optional[Path]:
@@ -200,16 +228,26 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "Wazy"
     sys_version = ""
     timeout = 30                # seconds a client may take to send its request
+    # One request per connection (HTTP/1.0). Bytes sent after a request (a body we did not read) can then
+    # never be read as a second request: through a tunnel, that request would arrive from 127.0.0.1 without
+    # proxy headers and look like this computer.
+    protocol_version = "HTTP/1.0"
 
     def log_message(self, format: str, *args: Any) -> None:
         """Quiet: request lines can hold the access code, and message text is never logged."""
 
     # ----- who is asking -----
     def is_local(self) -> bool:
-        """This computer, directly: a loopback address and no proxy or tunnel headers."""
+        """This computer, directly: a loopback address, no proxy or tunnel headers, and a loopback Host.
+
+        The Host check stops DNS rebinding: a web page on evil.example can point its own name at 127.0.0.1,
+        and the browser then sends Host: evil.example. Such a request must not count as this computer.
+        """
         if self.client_address[0] not in LOCAL_ADDRESSES:
             return False
-        return not any(name in self.headers for name in PROXY_HEADERS)
+        if any(name in self.headers for name in PROXY_HEADERS):
+            return False
+        return LOCAL_HOST.fullmatch(self.headers.get("Host", "").strip()) is not None
 
     def cookies(self) -> Dict[str, str]:
         found: Dict[str, str] = {}
@@ -258,7 +296,7 @@ class Handler(BaseHTTPRequestHandler):
         for name, value in SECURITY_HEADERS:
             self.send_header(name, value)
         if content_type.startswith("text/html"):
-            self.send_header("Content-Security-Policy", CSP)
+            self.send_header("Content-Security-Policy", page_csp(body))
         for cookie in self.new_cookies:
             self.send_header("Set-Cookie", cookie)
         for name, value in headers:
@@ -453,7 +491,7 @@ class Handler(BaseHTTPRequestHandler):
     def post_send(self, data: dict) -> None:
         """{"text": "..."}: the person's message. Answers with Wazy's replies."""
         text = data.get("text")
-        if not isinstance(text, str):
+        if not isinstance(text, str) or not can_store(text):
             return self.refuse(400, "bad_request")
         self.send_replies(self.server.app.handle(self.user_id(), text, channel="web"))
 
@@ -529,12 +567,16 @@ def build(config: Config) -> tuple:
     return app, whatsapp
 
 
-def startup_message(config: Config, server: WazyServer) -> str:
-    """What the terminal shows once the server is up. Never message text, never the admin code."""
+def startup_message(config: Config, server: WazyServer, show_code: bool = True) -> str:
+    """What the terminal shows once the server is up. Never message text, never the admin code.
+
+    The access link holds the access code, so it is shown only when a person is watching a terminal
+    (show_code). When the output goes to a file or a hosting platform's log, the code is left out.
+    """
     port = server.server_address[1]
     here = config.host if config.host not in ("0.0.0.0", "::", "localhost") else "127.0.0.1"
     local = f"http://{here}:{port}"
-    code = quote(server.access_code, safe="")
+    code = quote(server.access_code, safe="") if show_code else "<hidden in logs: see the presenter view>"
     access = f"{config.public_url}/?k={code}" if config.public_url else f"{local}/?k={code}"
     later = f"after {config.later_minutes} min" if config.later_minutes else "the next morning"
     phones = ("open the access link" if config.public_url
@@ -571,7 +613,7 @@ def main() -> None:
     scheduler = start_scheduler(app, stop)
     if whatsapp:
         whatsapp.start()
-    print(startup_message(config, server), flush=True)
+    print(startup_message(config, server, show_code=sys.stdout.isatty()), flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

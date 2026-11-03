@@ -235,7 +235,18 @@ def _public_url(value: str, twilio_on: bool) -> str:
             raise ConfigError("WAZY_PUBLIC_URL is required when Twilio is set (e.g. https://wazy.example.com).")
         return ""
     parts = urlparse(value)
+    # "?" and "#" are refused even when empty: Twilio signs the exact address, so it must be plain.
+    # The value is not repeated in the message: a mistaken https://user:password@... would end up in a log.
     if (parts.scheme != "https" or not parts.hostname or parts.username or parts.password
-            or parts.query or parts.fragment or any(c.isspace() for c in value)):
-        raise ConfigError(f"WAZY_PUBLIC_URL '{value}' must be a plain https:// address, e.g. https://wazy.example.com.")
+            or "?" in value or "#" in value or any(c.isspace() for c in value) or not _url_port_ok(parts)):
+        raise ConfigError("WAZY_PUBLIC_URL must be a plain https:// address, e.g. https://wazy.example.com.")
     return value.rstrip("/")
+
+
+def _url_port_ok(parts) -> bool:
+    """No port, or a port from 1 to 65535 ("https://host:99999" is a typo, not an address)."""
+    try:
+        port = parts.port            # raises ValueError for a port that is not a number or is too big
+    except ValueError:
+        return False
+    return port is None or port >= 1

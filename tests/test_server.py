@@ -8,24 +8,30 @@ Run: python3 -m unittest tests.test_server -v
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import http.client
 import io
 import json
 import os
 import re
+import socket
 import tempfile
 import threading
 import types
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from unittest import mock
+from urllib.parse import urlencode
 
 import wazy.server as server_module
 from wazy.config import Config, ConfigError
 from wazy.db import Database
 from wazy.server import RateLimiter, access_code_for, make_server, start_scheduler, static_file, whole_number
 from wazy.types import Reply
+from wazy.whatsapp import WhatsApp, signature
 
 CODE = "class-code-2026"
 ADMIN = "presenter-code-2026"
@@ -167,6 +173,33 @@ def _headers(keywords: Dict[str, str]) -> Dict[str, str]:
     return {name.replace("_", "-"): value for name, value in keywords.items()}
 
 
+def inline_scripts(html: str) -> List[str]:
+    """The text of each <script> element as an HTML parser (like the browser's) reads it."""
+    class Scripts(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            self.found: List[str] = []
+            self.inside = False
+
+        def handle_starttag(self, tag: str, attrs: list) -> None:
+            if tag == "script":
+                self.inside = True
+                self.found.append("")
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag == "script":
+                self.inside = False
+
+        def handle_data(self, data: str) -> None:
+            if self.inside:
+                self.found[-1] += data
+
+    parser = Scripts()
+    parser.feed(html)
+    parser.close()
+    return parser.found
+
+
 # ---------------------------------------------------------------------------------------------
 # This computer
 # ---------------------------------------------------------------------------------------------
@@ -220,6 +253,71 @@ class LocalRoutes(ServerTest):
             with self.subTest(header=name):
                 self.assertEqual(self.get("/api/state", **{name.replace("-", "_"): "1.2.3.4"}).status, 403)
                 self.assertEqual(self.get("/demo", **{name.replace("-", "_"): "1.2.3.4"}).status, 403)
+
+    def test_loopback_host_names_are_local(self):
+        for host in (f"127.0.0.1:{self.port}", f"localhost:{self.port}", "LOCALHOST", f"[::1]:{self.port}"):
+            with self.subTest(host=host):
+                self.assertEqual(self.get("/api/admin/state", Host=host).status, 200)
+
+
+class DnsRebinding(ServerTest):
+    """A web page on evil.example can point its own name at 127.0.0.1. The browser's requests then come from
+    this computer, without proxy headers, but with Host: evil.example. They must not count as local."""
+
+    def test_another_sites_name_on_a_loopback_address_is_not_local(self):
+        evil = {"Host": f"rebind.evil.example:{self.port}"}
+        for path in ("/demo", "/api/admin/state", "/api/link", "/api/state", "/"):
+            with self.subTest(path=path):
+                self.assertEqual(self.get(path, **evil).status, 403)
+        answer = self.post("/api/reset", Origin=f"http://rebind.evil.example:{self.port}", **evil)
+        self.assertEqual((answer.status, answer.json()), (403, {"ok": False, "error": "forbidden"}))
+        self.assertEqual(self.app.calls, [])
+
+    def test_a_request_without_host_is_not_local(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        try:
+            connection.putrequest("GET", "/api/admin/state", skip_host=True)
+            connection.endheaders()
+            self.assertEqual(connection.getresponse().status, 403)
+        finally:
+            connection.close()
+        self.assertEqual(self.app.calls, [])
+
+
+class OneRequestPerConnection(ServerTest):
+    """Bytes a client sends after its request must never be read as a second request: through a tunnel
+    that hidden request would come from 127.0.0.1 without proxy headers and look like this computer."""
+
+    HIDDEN = (b"POST /api/reset HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+              b"Content-Length: 2\r\n\r\n{}")
+    TUNNEL = b"Host: wazy.example.com\r\nX-Forwarded-For: 203.0.113.7\r\n"
+
+    def raw(self, data: bytes) -> bytes:
+        """Send bytes as they are and read until the server closes the connection (or 3 s pass)."""
+        received = b""
+        with socket.create_connection(("127.0.0.1", self.port), timeout=3) as sock:
+            sock.sendall(data)
+            try:
+                while True:
+                    chunk = sock.recv(65536)
+                    if not chunk:
+                        break
+                    received += chunk
+            except (socket.timeout, ConnectionResetError):
+                pass
+        return received
+
+    def test_a_body_on_a_get_is_not_a_second_request(self):
+        self.raw(b"GET /healthz HTTP/1.1\r\n" + self.TUNNEL +
+                 b"Content-Length: %d\r\n\r\n" % len(self.HIDDEN) + self.HIDDEN)
+        self.assertNotIn("reset", self.app.names())
+
+    def test_the_rest_of_a_refused_body_is_not_a_second_request(self):
+        cookie = self.remote_browser()["Cookie"].encode()              # a phone with the access code
+        body = b"x" * server_module.MAX_SKIP + self.HIDDEN          # more than the server reads and drops
+        self.raw(b"POST /api/send HTTP/1.1\r\n" + self.TUNNEL + b"Cookie: " + cookie + b"\r\n" +
+                 b"Content-Type: application/json\r\nContent-Length: %d\r\n\r\n" % len(body) + body)
+        self.assertNotIn("reset", self.app.names())
 
 
 # ---------------------------------------------------------------------------------------------
@@ -290,7 +388,8 @@ class RemoteAccess(ServerTest):
         self.assertRegex(answer.cookie_value("wazy_user"), r"^[0-9a-f]{32}$")
 
     def test_a_made_up_user_id_is_replaced(self):
-        for bad in ("abc", "../../etc", "whatsapp:+34600000000", "A" * 32):
+        for bad in ("abc", "../../etc", "whatsapp:+34600000000", "A" * 32, "local", "web:local", "0" * 31,
+                    "0" * 33, "web:" + "0" * 32):
             with self.subTest(bad=bad):
                 self.app.calls.clear()
                 answer = self.get("/api/state", **_kw({**REMOTE, "Cookie": f"wazy_access={CODE}; wazy_user={bad}"}))
@@ -429,6 +528,12 @@ class Api(ServerTest):
                 self.assertEqual(self.post("/api/send", data).json(), {"ok": False, "error": "bad_request"})
         self.assertEqual(self.app.calls, [])
 
+    def test_text_the_database_cannot_store_is_400(self):
+        answer = self.post("/api/send", raw=b'{"text": "call mum \\ud83d"}')     # half of an emoji
+        self.assertEqual((answer.status, answer.json()["error"]), (400, "bad_request"))
+        self.assertEqual(self.app.calls, [])
+        self.assertEqual(self.post("/api/send", raw=b'{"text": "call mum \\ud83d\\udcde"}').status, 200)
+
     def test_remote_send_uses_that_browsers_id(self):
         headers = self.remote_browser()
         self.assertEqual(self.post("/api/send", {"text": "hi"}, **_kw(headers)).status, 200)
@@ -458,7 +563,7 @@ class Api(ServerTest):
         for data in ({"commitment_id": 3}, {"commitment_id": 3, "action": "stop"}, {"action": "done"},
                      {"commitment_id": "x", "action": "done"}, {"commitment_id": True, "action": "done"},
                      {"commitment_id": 1.5, "action": "done"}, {"commitment_id": -2, "action": "done"},
-                     {"commitment_id": None, "action": "done"}):
+                     {"commitment_id": None, "action": "done"}, {"commitment_id": 10 ** 30, "action": "done"}):
             with self.subTest(data=data):
                 answer = self.post("/api/answer", data)
                 self.assertEqual((answer.status, answer.json()["error"]), (400, "bad_request"))
@@ -598,6 +703,22 @@ class Headers(ServerTest):
         self.assertIsNotNone(self.get("/demo").headers["Content-Security-Policy"])
         self.assertIsNone(self.get("/api/state").headers["Content-Security-Policy"])
 
+    def test_csp_runs_only_the_pages_own_scripts_and_loads_nothing_from_other_sites(self):
+        for path, page in (("/", "chat.html"), ("/demo", "demo.html")):
+            with self.subTest(page=page):
+                csp = self.get(path).headers["Content-Security-Policy"]
+                scripts = inline_scripts((server_module.STATIC / page).read_text(encoding="utf-8"))
+                self.assertEqual(len(scripts), 1)
+                digest = base64.b64encode(hashlib.sha256(scripts[0].encode("utf-8")).digest()).decode()
+                script_src = re.search(r"script-src ([^;]*)", csp).group(1)
+                self.assertEqual(script_src, f"'self' 'sha256-{digest}'")
+                self.assertNotIn("http", csp)
+                self.assertNotIn("data:", csp)
+
+    def test_the_403_page_may_run_no_inline_script(self):
+        csp = self.get("/", **_kw(REMOTE)).headers["Content-Security-Policy"]
+        self.assertIn("script-src 'self';", csp)
+
     def test_json_is_utf8(self):
         self.assertEqual(self.get("/healthz").headers["Content-Type"], "application/json; charset=utf-8")
 
@@ -728,6 +849,47 @@ class Webhook(ServerTest):
         self.assertEqual(self.webhook(b"Body=hi").status, 404)
 
 
+class WebhookEndToEnd(ServerTest):
+    """The real signature check behind the real HTTP server: Twilio signs public_url + /whatsapp/webhook."""
+
+    TOKEN = "f" * 32
+    FIELDS = {"From": "whatsapp:+34600000001", "Body": "Llamar a mamá + papá", "MessageSid": "SM1"}
+
+    URL = "https://wazy.example.com/whatsapp/webhook"
+
+    def setUp(self) -> None:
+        self.app = TwilioApp()
+        real = WhatsApp(account_sid="AC" + "0" * 32, auth_token=self.TOKEN, from_number="whatsapp:+14155238886",
+                        public_url="https://wazy.example.com")
+        real.attach(self.app)
+        self.start(self.settings(), real)
+
+    def send(self, fields: dict, signed: str) -> Response:
+        return self.request("POST", "/whatsapp/webhook", body=urlencode(fields).encode(),
+                            headers={**FORM, **REMOTE, "X-Twilio-Signature": signed})
+
+    def test_a_signed_message_is_handled_once(self):
+        signed = signature(self.URL, self.FIELDS, self.TOKEN)
+        self.assertEqual(self.send(self.FIELDS, signed).status, 200)
+        self.assertEqual(self.send(self.FIELDS, signed).status, 200)          # Twilio sent it again: ignored
+        self.assertEqual(self.app.calls, [("handle", "whatsapp:+34600000001", "Llamar a mamá + papá", "whatsapp")])
+
+    def test_wrong_address_changed_text_or_no_signature_is_403(self):
+        other_site = signature("https://other.example.com/whatsapp/webhook", self.FIELDS, self.TOKEN)
+        self.assertEqual(self.send(self.FIELDS, other_site).status, 403)
+        changed = {**self.FIELDS, "Body": "cancel everything"}
+        self.assertEqual(self.send(changed, signature(self.URL, self.FIELDS, self.TOKEN)).status, 403)
+        self.assertEqual(self.send(self.FIELDS, "").status, 403)
+        self.assertEqual(self.app.calls, [])
+
+
+class TwilioApp(FakeApp):
+    """FakeApp that also takes the zone WhatsApp passes for a new person."""
+
+    def handle(self, user_id: str, text: str, *, channel: str = "web", tz: Optional[str] = None) -> list:
+        return super().handle(user_id, text, channel=channel)
+
+
 # ---------------------------------------------------------------------------------------------
 # Starting up
 # ---------------------------------------------------------------------------------------------
@@ -735,6 +897,11 @@ class Helpers(unittest.TestCase):
     def test_whole_number(self):
         self.assertEqual([whole_number(v) for v in (12, "12", 0, True, 1.5, "x", -1, "-1", None, "1e3")],
                          [12, 12, 0, None, None, None, None, None, None, None])
+
+    def test_whole_number_is_small_enough_for_the_database(self):
+        self.assertEqual(whole_number(10 ** 18 - 1), 10 ** 18 - 1)
+        self.assertIsNone(whole_number(10 ** 18))
+        self.assertIsNone(whole_number(2 ** 63))
 
     def test_scheduler_ticks_until_stopped_and_survives_errors(self):
         app = FakeApp()
@@ -775,8 +942,9 @@ class Main(unittest.TestCase):
         self.assertEqual(caught.exception.code, 2)
         self.assertIn("WAZY_PORT", log.getvalue())
 
-    def run_main(self, config: Config) -> Tuple[dict, str]:
-        """Run main() with stand-ins for App, AIReader and WhatsApp; the server stops at once (Ctrl+C)."""
+    def run_main(self, config: Config, terminal: bool = True) -> Tuple[dict, str]:
+        """Run main() with stand-ins for App, AIReader and WhatsApp; the server stops at once (Ctrl+C).
+        terminal=False sends the output somewhere no person is watching (a log file, a hosting log)."""
         built: dict = {"whatsapp": []}
 
         class App(FakeApp):
@@ -822,7 +990,7 @@ class Main(unittest.TestCase):
         with mock.patch.dict("sys.modules", modules), \
                 mock.patch.object(server_module, "load_config", return_value=config), \
                 mock.patch.object(server_module, "make_server", return_value=Server()), \
-                mock.patch("sys.stdout", new=io.StringIO()) as out:
+                mock.patch("sys.stdout", new=Output(terminal)) as out:
             server_module.main()
         return built, out.getvalue()
 
@@ -857,6 +1025,23 @@ class Main(unittest.TestCase):
         self.assertNotIn("admin-code-123", out)
         self.assertNotIn("sk-ant-x", out)
         self.assertNotIn("1" * 32, out)
+
+    def test_access_code_is_shown_only_in_a_terminal(self):
+        config = Config(db_path=":memory:", public_url="https://wazy.example.com")
+        _, out = self.run_main(config, terminal=False)
+        self.assertNotIn(CODE, out)
+        self.assertIn("https://wazy.example.com/?k=<hidden", out)
+
+
+class Output(io.StringIO):
+    """Captured standard output that says whether it is a terminal."""
+
+    def __init__(self, terminal: bool) -> None:
+        super().__init__()
+        self.terminal = terminal
+
+    def isatty(self) -> bool:
+        return self.terminal
 
 
 if __name__ == "__main__":
