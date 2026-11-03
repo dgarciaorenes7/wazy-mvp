@@ -253,6 +253,16 @@ class Database:
         cols = ", ".join(f"{name} = ?" for name in fields)
         self.execute(f"UPDATE users SET {cols} WHERE id = ?", (*fields.values(), user_id))
 
+    # ----- messages -----
+    def add_message(self, user_id: str, role: str, text: str, kind: str = "text", lang: str = "en",
+                    commitment_id: Optional[int] = None, now: Optional[datetime] = None) -> int:
+        """Store one chat message (the person's or Wazy's) and return its id."""
+        when = now or datetime.now(UTC)
+        cursor = self.execute(
+            "INSERT INTO messages (user_id, role, text, kind, lang, commitment_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)", (user_id, role, text, kind, lang, commitment_id, to_db(when)))
+        return int(cursor.lastrowid)
+
     # ----- schema and migration -----
     def _upgrade(self) -> None:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]

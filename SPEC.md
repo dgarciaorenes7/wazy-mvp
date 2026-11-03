@@ -118,6 +118,98 @@ with nudge_at as UTC text and nudge_at_local in the person's zone), "outcomes": 
 learned_hour, commitments, last_seen_at}]` and `"focus_user"`: the most recently active user id, whose
 messages are in `"messages"` so the presenter view shows a live conversation.
 
+### 2.1 Agreed details (added at the start of the build so parallel modules fit together)
+
+**App extras.** `App.handle(user_id, text, *, channel="web", tz=None)`: `tz` is only used when the person is
+created (whatsapp.py passes the zone picked from the country code). `App.db` is the `Database`.
+`App.scheduler` is the `Scheduler`. `App.clock` is the clock.
+
+**Storing Wazy's messages.** Everyone uses `db.add_message(user_id, role, text, kind, lang, commitment_id, now)
+-> message id`. Whoever stores a bot message (conversation, scheduler) then calls
+`on_message(user_id, message_id, reply)` if it is set. `handle()` and `tap()` return the stored replies in order.
+`tap()` also stores the person's tap as a user message ("Done" / "Later", kind "text").
+
+**Learning functions** (`learning.py`, called by conversation and scheduler; none of them stores a message,
+the caller does):
+```python
+def evidence(db, user_id) -> dict   # keys: current_hour, answered (answered nudges counted, max 30),
+    # answered_at_current, done_at_current, misses (= answered_at_current - done_at_current),
+    # best_hour (or None), done_at_best, by_hour {hour: {"answered": n, "done": n}}
+def consider(db, user_id, now) -> Optional[Reply]   # sets learning_pending/learning_asked_at, logs "asked"
+def answer(db, user_id, yes: bool, now) -> Reply      # learning_approved / learning_rejected
+def explain(db, user_id) -> Reply                     # learning_explained
+def forget(db, user_id, now) -> Reply                 # learning_forgotten
+def resume(db, user_id, now) -> Reply                 # learning_resumed
+```
+Replies are rendered in the user's saved `lang`. The hour of a nudge is the hour of `scheduled_for` in the
+person's zone. Only nudges whose commitment `time_source` is "default" or "learned" count at the current hour.
+
+**render() parameters** (fixed; `conversation.py` and `replies.py` must agree): welcome(ai: bool), help(),
+confirm(title, when_text, learned: bool), ask_time(title), ask_what(when_text: str, "" if none), invalid_time(title,
+detail, detail_code, hint), past_time(title, detail), too_far(title), recurring_unsupported(title),
+multiple_commitments(), not_commitment(reason: "question"|"edit"|"limit"), injection(), too_long(limit),
+stopped(), started(), done_ack(title), later_ack(title, when_text), no_open_nudge(),
+list(items=[(n, title, when_text)]), list_empty(), cancelled(title), cancel_which(items=[(n, title, when_text)]),
+nothing_to_cancel(), pending_cancelled(title: str, may be ""), learning_question(current_hour, misses, answered,
+best_hour, done_at_best), learning_approved(hour), learning_rejected(hour), learning_explained(off: bool,
+learned_hour: Optional[int], default_hour, done_at_current, answered_at_current, evidence: dict),
+learning_forgotten(default_hour), learning_resumed(), rate_limited(), nudge(title, due_text: str, "" when on time,
+else the local due clock time "09:00"). `title` may be "" where the kind allows it (e.g. ask_time never gets "").
+Unknown kind or missing parameter raises (a bug, caught by tests).
+
+**What reply texts must contain** (evals check these with `last_reply_contains`): `confirm` contains the title
+and `when_text`; `ask_time`, `invalid_time`, `past_time`, `too_far`, `recurring_unsupported`, `done_ack`,
+`later_ack`, `cancelled`, `nudge` contain the title (when not ""); `invalid_time` contains `detail` and, for
+`weekday_mismatch`, `hint`; `past_time` contains `detail`; `later_ack` contains `when_text`; `list` and
+`cancel_which` contain every title. Titles are always shown in curly quotes “...”.
+
+**describe_when(when, now, lang)** (`when` shown in its own zone, `now` converted to that zone):
+| Gap | English | Spanish |
+|---|---|---|
+| < 120 s | `at 09:30:30 (in 30 s)` | `a las 09:30:30 (en 30 s)` |
+| < 60 min | `at 09:45 (in 15 min)` | `a las 09:45 (en 15 min)` |
+| same day | `today at 18:00` | `hoy a las 18:00` |
+| next day | `tomorrow at 09:00` | `mañana a las 09:00` |
+| < 7 days | `on Friday at 10:00` | `el viernes a las 10:00` |
+| later | `on Thu 5 Nov at 10:00` (`on Thu 5 Nov 2027 at 10:00` if another year) | `el jueves 5 de noviembre a las 10:00` (`... de 2027 ...`) |
+Spanish uses `a la` for 01:xx (`a la 01:30`). Seconds are shown only in the first row. Gaps are rounded to the
+nearest whole second/minute, minimum 1.
+
+**state() details.** `commitments[*]` has `id, title, raw_text, nudge_at, nudge_at_local
+("YYYY-MM-DDTHH:MM:SS" in the person's zone, no offset), status, time_source, deadline (0/1), later_count,
+reader, created_at`. `outcomes[*]` has `id, commitment_id, title, scheduled_for, nudged_at, outcome,
+responded_at, seconds_to_respond`. `stats` has `commitments, nudges_sent, done, later, no_reply, stopped,
+cancelled, pending, done_rate` (whole percent of answered nudges, 0 if none). `learning_log` and
+`reader_misses` are that person's rows, newest first, max 50. Message `created_at` is UTC text.
+
+**HTTP shapes.** `POST /api/send {"text"}` and `POST /api/answer {"commitment_id", "action"}` return
+`{"ok": true, "replies": [{"kind", "text", "lang", "commitment_id", "buttons"}]}`; errors are
+`{"ok": false, "error": "<code>"}` (e.g. `not_open`, `bad_json`, `too_large`, `forbidden`, `rate_limited`).
+The UI then fetches `/api/state`. The web chat shows Done/Later under every message whose id is in `open`.
+HTTP-level rate limit: 30 POSTs per minute per user id (429), separate from the conversation's own limit.
+
+**WhatsApp wiring** (`whatsapp.py`):
+```python
+def signature(url: str, params: dict, auth_token: str) -> str          # base64 HMAC-SHA1 (Twilio's scheme)
+def valid_signature(url: str, params: dict, auth_token: str, given: str) -> bool
+def zone_for_number(number: str, default: str) -> str                  # "+34600..." -> "Europe/Madrid"
+class WhatsApp:
+    def __init__(self, *, account_sid, auth_token, from_number, public_url, content_sid="", opener=None,
+                 clock=None): ...
+    def attach(self, app) -> None                    # called once, after App is built with on_message=wa.on_message
+    def on_message(self, user_id, message_id, reply) -> None   # queue an outbox row for whatsapp: users only
+    def handle_webhook(self, params: dict, signature: str) -> int   # HTTP status: 200, or 403 on a bad signature
+    def deliver_due(self) -> int                    # send due outbox rows once; returns rows sent
+    def start(self) -> None / stop(self) -> None    # background sender thread
+```
+The webhook URL that is signed is `public_url` + `/whatsapp/webhook`.
+
+**Config** (`config.py`): `load_config(env: Optional[Mapping[str, str]] = None, dotenv: Optional[Path] = None)
+-> Config` (a dataclass) or raises `ConfigError` with a message naming the bad setting. With `env=None` it reads
+`os.environ` plus `.env` (real env wins). Fields: `host, port, tz, db_path, anthropic_api_key, ai_model,
+later_minutes (Optional[int]), access_code, admin_code, twilio_account_sid, twilio_auth_token, twilio_from,
+twilio_content_sid, public_url`, and the property `twilio_enabled`.
+
 ## 3. Reading the time (`timeparse.py`)
 
 Input is the person's whole message. Matching is case-insensitive and accent-insensitive
@@ -219,6 +311,10 @@ Priority when several apply: `recurring` > `invalid` > `past` > `multiple` > `to
 4. Keep everything else exactly as typed, including meaningful numbers ("Call 3 clients", "Room 107"), names,
    accents and emoji. Collapse spaces. Capitalise the first letter only. Cap at 120 characters on a word boundary.
 5. Return `""` if nothing meaningful is left (only filler, only a time, only punctuation/emoji-free noise).
+   Concretely: `""` if what is left has no letter at all (only digits, punctuation, emoji), or consists only of
+   noise words: `hmm`, `hm`, `um`, `uh`, `ok`, `okay`, `k`, `lol`, `haha`, `jaja`, `thanks`, `thank you`, `thx`,
+   `cool`, `nice`, `great`, `yes`, `no`, `yeah`, `nope`, `gracias`, `vale`, `bueno`, `pues`, `sí`, `si`, `vale`,
+   `genial`, `perfecto`, `test`, `testing`, `prueba`.
 
 Examples: "Remind me to call mum yesterday at 25:00" -> "Call mum" (with the time problem reported separately).
 "I need to sort out the gym thing at some point" -> "Sort out the gym thing".
@@ -323,7 +419,7 @@ Later -> outcome `later`, `later_count + 1`, status `scheduled`, `nudge_at = sch
 - `run_due(now)`: for each `scheduled` commitment with `nudge_at <= now` whose user is not opted out, CLAIM it in
   one transaction (`UPDATE ... SET status='nudged' WHERE id=? AND status='scheduled'`; only if 1 row changed)
   then insert the pending outcome (`scheduled_for` = due time, `nudged_at` = now) and the bot message
-  (kind "nudge", text from `render("nudge", lang, title=..., late=...)`, buttons). A nudge sent more than
+  (kind "nudge", text from `render("nudge", lang, title=..., due_text=...)`, buttons). A nudge sent more than
   10 minutes late says when it was due ("due at 09:00"). Never twice. A scheduled commitment of an opted-out user
   is left alone.
 - Pending outcomes older than 24 h -> `no_reply`, commitment status `no_reply`; then `learning.consider` for that user.
