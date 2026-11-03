@@ -90,8 +90,8 @@ class OpeningFillerTest(TitleTestCase):
     def test_english_sentences(self):
         self.check([
             ("Remind me to water the plants", [], "Water the plants"),
-            ("Remind me that the rent is due tomorrow", ["tomorrow"], "Rent is due"),
-            ("Remind me about the dentist on Friday", ["on Friday"], "Dentist"),
+            ("Remind me that the rent is due tomorrow", ["tomorrow"], "The rent is due"),
+            ("Remind me about the dentist on Friday", ["on Friday"], "The dentist"),
             ("Remind me tomorrow at 9 to call the bank", ["tomorrow at 9"], "Call the bank"),
             ("Reminder: dentist at 4pm", ["at 4pm"], "Dentist"),
             ("Reminder - pay the gas bill", [], "Pay the gas bill"),
@@ -117,7 +117,7 @@ class OpeningFillerTest(TitleTestCase):
             ("Recuerdame comprar pan", [], "Comprar pan"),        # no accent typed
             ("recuerdame de pagar el alquiler el día 4", ["el día 4"], "Pagar el alquiler"),
             ("Acuerdate de sacar la basura", [], "Sacar la basura"),
-            ("No me dejes olvidar el regalo de Ana", [], "Regalo de Ana"),
+            ("No me dejes olvidar el regalo de Ana", [], "El regalo de Ana"),
             ("No te olvides de recordarme pagar la luz", [], "Pagar la luz"),
             ("Tengo que enviar el informe antes del viernes", ["antes del viernes"], "Enviar el informe"),
             ("Tengo que enviar el informe antes del viernes", ["viernes"], "Enviar el informe"),
@@ -180,15 +180,27 @@ class ClosingFillerTest(TitleTestCase):
 class JoinerTest(TitleTestCase):
     def test_every_joiner_is_removed_at_the_start(self):
         for joiner in SPEC_JOINERS:
+            if joiner in ("the", "a", "el", "la", "las"):     # articles stay: "The dentist" (lead decision)
+                continue
             for text in (joiner + " call mum", joiner.capitalize() + " call mum"):
                 with self.subTest(text=text):
                     self.assertEqual(make_title(text, []), "Call mum")
 
     def test_every_joiner_is_removed_at_the_end(self):
         for joiner in SPEC_JOINERS:
+            if joiner in ("on", "in"):                         # "Turn the heating on" (lead decision)
+                continue
             for text in ("call mum " + joiner, "call mum " + joiner.upper() + "."):
                 with self.subTest(text=text):
                     self.assertEqual(make_title(text, []), "Call mum")
+
+    def test_articles_stay_at_the_start_and_particles_at_the_end(self):
+        self.check([
+            ("Remind me about the dentist", [], "The dentist"),
+            ("recuérdame la reunión con Ana", [], "La reunión con Ana"),
+            ("Put the kettle on", [], "Put the kettle on"),
+            ("Remind me to log in", [], "Log in"),
+        ])
 
     def test_joiners_left_by_a_span_go_again_and_again(self):
         self.check([
@@ -201,7 +213,7 @@ class JoinerTest(TitleTestCase):
 
     def test_trailing_particle_follows_spec_rule_3(self):
         # SPEC 4.3 drops "on" at the end even when it belongs to the verb. A known, accepted trade-off.
-        self.check([("Turn the heating on at 7pm", ["at 7pm"], "Turn the heating")])
+        self.check([("Turn the heating on at 7pm", ["at 7pm"], "Turn the heating on")])
 
 
 class PunctuationTest(TitleTestCase):

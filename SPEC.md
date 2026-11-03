@@ -314,7 +314,9 @@ Priority when several apply: `recurring` > `invalid` > `past` > `multiple` > `to
    `recuérdame de`, `acuérdate de`, `no me dejes olvidar`, `no te olvides de recordarme`, `tengo que`,
    `necesito`, `debo`, `hay que`, `quiero`, `por favor`, `porfa`, `oye`, `hola`.
 3. Remove dangling joiners at either end (`to`, `at`, `on`, `by`, `in`, `for`, `the`, `this`, `next`, `and`,
-   `a`, `las`, `el`, `la`, `de`, `del`, `para`, `antes`, `y`, `que`, `around`, `about`) and punctuation.
+   `a`, `las`, `el`, `la`, `de`, `del`, `para`, `antes`, `y`, `que`, `around`, `about`) and punctuation. Two exceptions
+   (decided in integration): articles `the`, `a`, `el`, `la`, `las` stay at the start ("The dentist"), and `on`,
+   `in` stay at the end ("Turn the heating on"), because timeparse spans already include connector words.
 4. Keep everything else exactly as typed, including meaningful numbers ("Call 3 clients", "Room 107"), names,
    accents and emoji. Collapse spaces. Capitalise the first letter only. Cap at 120 characters on a word boundary.
 5. Return `""` if nothing meaningful is left (only filler, only a time, only punctuation/emoji-free noise).

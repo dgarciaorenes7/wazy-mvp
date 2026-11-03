@@ -47,6 +47,10 @@ COURTESY_IS_THE_TASK_AFTER = {"say", "send", "give", "a", "the", "my", "las", "d
 # Little words left hanging at either end once the time is gone ("Send the deck to Ana by").
 JOINERS = {"to", "at", "on", "by", "in", "for", "the", "this", "next", "and", "a", "las", "el", "la",
            "de", "del", "para", "antes", "y", "que", "around", "about"}
+# Two exceptions, because the time reader's spans already include the connector words ("at 7pm",
+# "on Friday"), so these are the person's own words, not leftovers:
+KEEP_AT_START = {"the", "a", "el", "la", "las"}     # articles: "Remind me about the dentist" -> "The dentist"
+KEEP_AT_END = {"on", "in"}                          # the end of a phrasal verb: "Turn the heating on"
 
 # A message made only of these is not a task (SPEC 4.5).
 NOISE = ["hmm", "hm", "um", "uh", "ok", "okay", "k", "lol", "haha", "jaja", "thanks", "thank you", "thx",
@@ -77,7 +81,7 @@ def make_title(text: str, spans: Sequence[Span], lang: str = "en") -> str:
     if AIMED_AT_WAZY.search(" ".join(key(word) for word in words)):
         return ""
     head, core, tail = set_aside_emoji(words)
-    core = trim_end(drop_from_start(core, OPENING_KEYS, is_loose))    # 2 and 3. peel filler and joiners
+    core = trim_end(drop_from_start(core, OPENING_KEYS, is_loose_at_start))   # 2 and 3. peel filler, joiners
     if not looks_like_a_task(core):                                   # 5. nothing meaningful left
         return ""
     title = finish(head, core, tail)                                  # 4. punctuation, capital letter
@@ -133,6 +137,14 @@ def is_loose(word: str) -> bool:
     return key(word) in JOINERS or key(word) == ""
 
 
+def is_loose_at_start(word: str) -> bool:
+    return is_loose(word) and key(word) not in KEEP_AT_START
+
+
+def is_loose_at_end(word: str) -> bool:
+    return is_loose(word) and key(word) not in KEEP_AT_END
+
+
 def set_aside_emoji(words: List[str]) -> Tuple[List[str], List[str], List[str]]:
     """Split off the words with no letter or digit at each end (emoji such as 🎂 or 🙏), so filler
     next to them can still be found ("Call mum please 🙏"). Lone punctuation among them is dropped."""
@@ -168,7 +180,7 @@ def trim_end(words: List[str]) -> List[str]:
         word_before = words[-len(phrase) - 1] if phrase and len(words) > len(phrase) else ""
         if phrase and key(word_before) not in COURTESY_IS_THE_TASK_AFTER:
             words = words[:-len(phrase)]
-        elif is_loose(words[-1]):
+        elif is_loose_at_end(words[-1]):
             words = words[:-1]
         else:
             break
