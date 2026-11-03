@@ -304,6 +304,57 @@ Under one day: exact (`now + delta`, seconds kept), stated. One day or more: tha
 - `none`: nothing time-like at all.
 Priority when several apply: `recurring` > `invalid` > `past` > `multiple` > `too_far` > `ok` > `vague` > `none`.
 
+### 3.6 Decisions after the red team (3 Nov 2026, integration)
+Two red-team agents tried about 1,700 real-life inputs. Where the SPEC was silent or wrong, these rules now apply.
+Clock forms:
+- `Hh`, `HhMM`, `H:MMh` and a leading zero (`08:30`) are exact 24-hour times (Spain: "a las 8h" = 08:00).
+  `H:MM` / `H.MM` with hour 1 to 12 and no am/pm, no `h` and no part of day follows the bare-hour rule
+  ("at 5:30" said at 10:00 = 17:30). `9,30` after `a las` = 9:30. `at 1530` (4 digits after at/a las) = 15:30.
+  "tomorrow 9.30" and "8.00" count as clock times even without `at` (the dot form is listed in 3.1).
+- `N to H` / `N past H` with digits ("10 to 6", "20 past 5") work like quarter to/past. `half 8` (UK) = 8:30.
+  `H menos N` with N > 59 is `invalid` (minute_out_of_range), never a crash.
+- The bare-hour rule always applies to the hour that is named: "tomorrow at quarter to 8" = 07:45.
+- `de la noche` / `at night` with hour 1 to 5 means early morning (`a las 2 de la noche` = 02:00), with 8 to 11
+  means 20:00 to 23:00, 12 means 00:00. `de madrugada` with any hour = am. `12 midnight` = 00:00.
+- Approximate words belong to the time and leave the title: `around`, `about` before a time, `-ish`, `ish`,
+  `y pico`, `o así`, `más o menos`, `sobre las`, `a eso de las`, `en punto`, `@`. The time is the named hour.
+- `by`, `before`, `until`, `antes de las`, `hasta las` followed by a bare number (1 to 24) make that number a
+  clock time (bare-hour rule) with `deadline = True`: "be home by 6" = 18:00.
+- `not now`, `ahora no` are never the time "now".
+Days and dates:
+- `2moro`, `2morrow`, `mñn`, `mñna`, `mna` = tomorrow. `mañana tarde` = tomorrow 16:00. `por la mañanita` = 09:00.
+- Spanish short weekdays count only right after `el`: `el lun`, `el mié`/`el mie`, `el jue`, `el vie`, `el sáb`,
+  `el dom` (`el mar` is "the sea", so not Tuesday). English short forms as in 3.2.
+- `el N` (1 to 31) is a date when followed by the end of the message, punctuation, or a time (`a las`, `a la`,
+  `por la`, `de la`). `el lunes día 16` = 16th, checked against the weekday (mismatch = invalid).
+- `el 20-11`, `20-11` = 20 November. `a week from today`, `in a fortnight` (14 days), `en 2 años` = too_far.
+- `in 2 hours 30 minutes`, `1h 30min`, `1h30min`, `en un cuarto de hora` (15 min), `hora y media` (90 min),
+  diminutives `minutillos`, `minutitos`, `horitas` work like the plain words.
+- A day word that is part of the task is not a time: `Friday's exam`, `last month's invoice`, `for the weekend`
+  (only `this weekend` / `el finde` / `este fin de semana` are times), `weekly report`, `daily planner`
+  (`daily`/`weekly`/`monthly` are recurring only at the end of the message or before a time word).
+- Connector words join a span only next to the kind they introduce: `on` + a day or date, `at`/`a las` + a clock
+  time, `in`/`en` + a delay. "Turn the heating on at 7pm" -> span "at 7pm", title "Turn the heating on".
+- When two times describe one task ("at 5, tomorrow at 6"), keep the first that has both a day and a time of day.
+Messages and titles (5, 4):
+- Opening filler also includes: `would you remind me to`, `can u remind me to`, `nudge me to`, `set a reminder to`,
+  `set a reminder for`, `do not forget to`, `good morning`, `good evening`, `sure`, `erm`, `er`, `well`, `so`,
+  `avísame`, `avísame de`, `recuérdamelo`, `acuérdate`, `que no se me olvide`, `que no se me olvide de`,
+  `recuérdame q`, `oye`. `recuérdame` / `remind me to` left at the start after a span is removed is filler too
+  ("Mañana a las 9 recuérdame llamar" -> "Llamar"). Closing filler also: `then`, `works`, `is fine`, `ok?`,
+  `vale?`, `right?`. Noise words also: `sure`, `erm`, `er`, `then`, `works`, `fine`, `sounds good`, `perfect`.
+- Commands also: `unsubscribe me`, `deja de avisarme`, `no me avises más` = stop. `show me my list`,
+  `show my list` = list. `cancel all`, `cancela todo` = cancel with no number. `cancel 1 and 2`, `cancela 1 y 3`
+  = cancel with `numbers` [1, 2]: each listed item is cancelled (one `cancelled` reply per item), out of range
+  -> `cancel_which`. `make it 6pm`, `make it tomorrow`, `hazlo a las 6` = edit.
+- A message with "remind me" / "a reminder to" / "recuérdame" / "avísame", or a commitment followed by a tag
+  question (`ok?`, `vale?`, `right?`, `please?`), is `text`, not `question`.
+- `ignore ...` after "remind me to" / "recuérdame" is the task unless it names Wazy's rules (`your`, `tus`,
+  `system`): "recuérdame ignorar las instrucciones del profe" is a commitment.
+- `luego` / `later` / `más tarde` while a wait is pending and no nudge is open is an answer to the wait (vague,
+  so `ask_time` again), not `no_open_nudge`.
+- Language: `me` counts for neither language (it is common in both).
+
 ## 4. The title (`title.py`)
 
 1. Remove every span from `parse_time` (times, vague words, recurring phrases, invalid times, deadline words that

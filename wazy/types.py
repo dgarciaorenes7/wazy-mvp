@@ -44,6 +44,7 @@ INTENTS = (
 class Intent:
     name: str                       # one of INTENTS; "text" means: read it as a commitment (or a reply to a question)
     number: Optional[int] = None    # for "cancel 2"
+    numbers: List[int] = field(default_factory=list)   # every number in "cancel 1 and 2" (number is the first)
 
 
 # ---- what Wazy says (wazy/replies.py renders, wazy/conversation.py decides) ---------------------
