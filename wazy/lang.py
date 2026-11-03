@@ -1,18 +1,13 @@
-"""Guess whether a message is written in English or Spanish.
+"""Guess whether a message is written in English or Spanish, and the small word helpers that go with it.
 
-detect_language(text) counts clues for each language and returns the one with more clues:
-
-* Spanish clues: the letters ñ á é í ó ú and the marks ¿ ¡ (each one counts), and common Spanish
-  words such as "recuérdame", "mañana", "que", "el", "para", "hoy", plus the Spanish command words
-  ("hola", "listo", "hecho", "ayuda", "para", "luego", "sí", "vale").
-* English clues: common English words such as "the", "to", "remind", "tomorrow", "call".
-
-A tie (including a message with no clues at all, like "ok", "✅" or "done") returns `fallback`, so the
-person keeps the language they were already using. English command words such as "done" or "stop"
-are deliberately NOT clues: a Spanish speaker tapping the "Done" button must not be switched to English.
-To ask "was there a clear signal?", call it with two different fallbacks and compare the answers.
-
-Words are compared without accents, so "manana" counts like "mañana".
+conversation.py calls detect_language(text) on every message, to answer in the person's language.
+It counts clues for each language and returns the one with more: Spanish clues are the letters ñ á é í ó ú,
+the marks ¿ ¡ and common Spanish words ("mañana", "que", "para", "hola", "listo"), English clues are common
+English words ("the", "to", "remind", "tomorrow"). A tie, including a message with no clues at all such as
+"ok", "✅" or "done", returns `fallback`, so the person keeps the language they were already using. English
+command words such as "done" or "stop" are deliberately NOT clues: a Spanish speaker tapping the "Done"
+button must not be switched to English. Words are compared without accents, so "manana" counts like
+"mañana"; strip_accents() and words_in() do that here and are reused by intents.py and title.py.
 """
 from __future__ import annotations
 
@@ -99,8 +94,12 @@ def language_scores(text: str) -> Tuple[int, int]:
 
 
 def count_a_las(words: List[str]) -> int:
-    """'a las' (as in "a las 9") is an extra Spanish clue on top of 'las' itself."""
-    return sum(1 for first, second in zip(words, words[1:]) if first == "a" and second == "las")
+    """How often "a las" (as in "a las 9") appears: an extra Spanish clue on top of "las" itself."""
+    count = 0
+    for position in range(len(words) - 1):
+        if words[position] == "a" and words[position + 1] == "las":
+            count += 1
+    return count
 
 
 def detect_language(text: str, fallback: str = "en") -> str:

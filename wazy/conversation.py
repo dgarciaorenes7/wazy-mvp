@@ -1,5 +1,11 @@
 """The conversation: what Wazy does with each message a person sends (SPEC section 6).
 
+app.py hands every incoming message to Conversation.handle() and every Done / Later button to
+Conversation.tap() (SPEC 6.2), always with "now" from its clock. To answer, this file asks intents.py what
+kind of message it is, lang.py which language it is in, timeparse.py and title.py when and what the
+commitment is, learning.py about the person's usual hour, and replies.py for the words. Everything it
+remembers between messages is in the database (db.py).
+
 handle() cleans the text, stores it, and then walks the numbered list of SPEC 6 from the top, stopping at the
 first step that applies:
 
@@ -19,8 +25,6 @@ first step that applies:
     14. anything else                     -> read it as a commitment (time, title) and confirm it,
                                              or say exactly what is wrong with the time and wait for a fix
 
-tap() records a Done or Later button press (SPEC 6.2).
-
 Every message the person sends is stored. Every message Wazy says is stored and then handed to on_message,
 so WhatsApp can deliver it. Changes that touch several rows (STOP, cancel, create, Done/Later) happen in one
 transaction, so they happen completely or not at all.
@@ -33,7 +37,7 @@ import threading
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta, tzinfo
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from zoneinfo import ZoneInfo
 
@@ -42,21 +46,19 @@ from .db import Database, from_db, to_db
 from .intents import classify
 from .lang import detect_language
 from .replies import describe_when, render
+from .scheduler import Scheduler
 from .timeparse import DEFAULT_HOUR, parse_time
-from .title import make_title
+from .title import MAX_LENGTH as MAX_TITLE_LENGTH, make_title
 from .types import Intent, Reply, TimeResult
-
-if TYPE_CHECKING:  # only for the type hints; the App builds the real Scheduler
-    from .scheduler import Scheduler
 
 log = logging.getLogger(__name__)
 
-MAX_LENGTH = 500                        # longer messages get "too_long" and nothing else happens
-RATE_LIMIT = 20                         # more than 20 messages ...
-RATE_WINDOW = timedelta(seconds=60)     # ... in 60 seconds is too many
-WAIT_EXPIRES = timedelta(hours=2)       # a question Wazy asked is forgotten 2 hours later
-MAX_SCHEDULED = 100                     # upcoming commitments one person may have at once
-LIST_SIZE = 10                          # "list" shows the next 10
+MAX_LENGTH = 500                        # characters: a longer message gets "too_long" and nothing else (SPEC 6)
+RATE_LIMIT = 20                         # messages per RATE_WINDOW; one more is too many (SPEC 6 step 2)
+RATE_WINDOW = timedelta(seconds=60)     # the window the rate limit counts in (SPEC 6 step 2)
+WAIT_EXPIRES = timedelta(hours=2)       # a question Wazy asked is forgotten 2 hours later (SPEC 6 step 14)
+MAX_SCHEDULED = 100                     # upcoming commitments one person may have at once (SPEC 6 step 14)
+LIST_SIZE = 10                          # "list" shows the next 10 (SPEC 6 step 9)
 GRACE = timedelta(seconds=5)            # a time up to 5 s ago still counts as "now" (SPEC 3.4)
 MAX_AHEAD = timedelta(days=366)         # the furthest ahead a time may be (SPEC 3.4)
 MISS_KINDS = ("ask_time", "invalid_time", "past_time", "too_far")   # replies that ask for a (better) time
@@ -94,6 +96,14 @@ def problem_reply(t: TimeResult, title: str) -> Tuple[str, dict]:
     return "ask_time", {"title": title}            # vague, or no time at all
 
 
+def zone_or_default(name: str, default: str) -> tzinfo:
+    """The time zone called `name`. A broken name (only possible in a damaged database) gives `default`."""
+    try:
+        return ZoneInfo(name)
+    except (KeyError, ValueError):
+        return ZoneInfo(default)
+
+
 @dataclass
 class Reading:
     """What Wazy understood from one message: the time (from the rules), the clean title, and who read it."""
@@ -105,7 +115,7 @@ class Reading:
 class Conversation:
     """The state machine of SPEC 6. Everything it remembers between messages is in the database."""
 
-    def __init__(self, db: Database, scheduler: "Scheduler", *, ai: Any = None,
+    def __init__(self, db: Database, scheduler: Scheduler, *, ai: Any = None,
                  on_message: Optional[Callable[[str, int, Reply], None]] = None) -> None:
         self.db = db
         self.scheduler = scheduler
@@ -119,9 +129,9 @@ class Conversation:
     # =========================================================================================
     def handle(self, user_id: str, text: str, now: datetime, *, channel: str = "web",
                tz: Optional[str] = None) -> List[Reply]:
-        """One incoming message -> Wazy's replies, in the order they were stored."""
+        """One incoming message -> Wazy's replies, in the order they were stored (SPEC 6)."""
         text = clean_text(text)
-        if not text:                                                  # step 1: nothing to answer
+        if not text:                                                  # step 1: an empty message gets no reply
             return []
         with self._lock_for(user_id):                                 # one message per person at a time
             return self._handle(user_id, text, now, channel, tz)
@@ -132,8 +142,10 @@ class Conversation:
             return []
         with self._lock_for(user_id):
             user = self.db.one("SELECT * FROM users WHERE id = ?", (user_id,))
-            nudge = self._open_nudge(user_id, commitment_id) if user else None
-            if nudge is None:
+            if user is None:                                          # someone Wazy has never met
+                return []
+            nudge = self._open_nudge(user_id, commitment_id)
+            if nudge is None:                                         # not open, or not this person's
                 return []
             self._update(user, last_seen_at=to_db(now))
             label = "Done" if action == "done" else "Later"
@@ -144,13 +156,13 @@ class Conversation:
     # handle(), step by step
     # =========================================================================================
     def _handle(self, user_id: str, text: str, now: datetime, channel: str, tz: Optional[str]) -> List[Reply]:
-        """Store the message, welcome a newcomer, then steps 2 to 14."""
+        """Note the person and their message, welcome a newcomer, then the first step of SPEC 6 that applies."""
         first_contact = self._is_new(user_id)
         user = self._arrive(user_id, now, channel, tz)
         lang = self._language(user, text)
         self.db.add_message(user_id, "user", text, "text", lang, None, now)
         self._expire_wait(user, now)
-        replies = [self._say(user, "welcome", lang, now, ai=self.ai is not None)] if first_contact else []
+        replies = [self._welcome(user, lang, now)] if first_contact else []
         if self._over_rate_limit(user, now):                          # step 2
             return replies + self._rate_limited(user, lang, now)
         if len(text) > MAX_LENGTH:
@@ -161,20 +173,20 @@ class Conversation:
         return replies + self._respond(user, intent, text, lang, now)
 
     def _respond(self, user: dict, intent: Intent, text: str, lang: str, now: datetime) -> List[Reply]:
-        """Steps 3 to 14 of SPEC 6: the first one that matches the message answers it."""
+        """Steps 3 to 14 of SPEC 6, in order: the first one that matches the message answers it."""
         name = intent.name
         if name == "stop":                                            # 3
             return self._stop(user, lang, now)
         if name == "start":                                           # 4
             return self._start(user, lang, now)
         if name == "help":                                            # 5
-            return [self._say(user, "help", lang, now)]
-        if name == "greeting":
-            return [self._say(user, "welcome", lang, now, ai=self.ai is not None)]
+            return self._help(user, lang, now)
+        if name == "greeting":                                        # 5
+            return [self._welcome(user, lang, now)]
         if name in ("yes", "no") and user["learning_pending"]:        # 6
-            return [self._store(user["id"], learning.answer(self.db, user["id"], name == "yes", now), now)]
+            return self._learning_answer(user, name == "yes", now)
         if name in ("learn_what", "learn_forget", "learn_resume"):    # 7
-            return self._learning(user, name, now)
+            return self._learning_command(user, name, now)
         if name in ("done", "later"):                                 # 8
             return self._answer_open_nudge(user, name, lang, now)
         if name == "list":                                            # 9
@@ -184,9 +196,9 @@ class Conversation:
         if name == "cancel_pending" and self._waiting(user):          # 11
             return self._cancel_wait(user, lang, now)
         if name == "injection":                                       # 12
-            return [self._say(user, "injection", lang, now)]
+            return self._refuse_injection(user, lang, now)
         if name in ("question", "edit"):                              # 13
-            return [self._say(user, "not_commitment", lang, now, reason=name)]
+            return self._not_a_commitment(user, name, lang, now)
         return self._read_commitment(user, text, lang, now)           # 14
 
     # ----- before the steps: who is this, which language, is a wait still fresh -----
@@ -216,22 +228,28 @@ class Conversation:
         if asked is not None and now - asked >= WAIT_EXPIRES:
             self._clear_wait(user)
 
+    def _welcome(self, user: dict, lang: str, now: datetime) -> Reply:
+        """The welcome (SPEC 6 step 5, and the first reply anyone ever gets)."""
+        return self._say(user, "welcome", lang, now, ai=self.ai is not None)
+
     # ----- step 2: rate limit -----
     def _over_rate_limit(self, user: dict, now: datetime) -> bool:
-        """More than 20 messages from this person in the last 60 seconds (this one included)."""
+        """SPEC 6 step 2: more than 20 messages from this person in the last 60 seconds (this one included)."""
         count = self.db.scalar("SELECT COUNT(*) FROM messages WHERE user_id = ? AND role = 'user' "
                                "AND created_at > ?", (user["id"], to_db(now - RATE_WINDOW)))
         return count > RATE_LIMIT
 
     def _rate_limited(self, user: dict, lang: str, now: datetime) -> List[Reply]:
-        """Say "slow down" at most once a minute; the other extra messages get no reply at all."""
+        """SPEC 6 step 2: say "slow down" at most once a minute; the other extra messages get no reply."""
         said = self.db.scalar("SELECT COUNT(*) FROM messages WHERE user_id = ? AND role = 'bot' "
                               "AND kind = 'rate_limited' AND created_at > ?", (user["id"], to_db(now - RATE_WINDOW)))
-        return [] if said else [self._say(user, "rate_limited", lang, now)]
+        if said:
+            return []
+        return [self._say(user, "rate_limited", lang, now)]
 
-    # ----- steps 3 and 4: STOP and START -----
+    # ----- steps 3 to 7: STOP, START, help, learning -----
     def _stop(self, user: dict, lang: str, now: datetime) -> List[Reply]:
-        """Every upcoming or open nudge stops (nothing is deleted), and the person is opted out."""
+        """SPEC 6 step 3: every upcoming or open nudge stops (nothing is deleted), and the person is opted out."""
         with self.db.transaction():
             self.db.execute("UPDATE commitments SET status = 'stopped' WHERE user_id = ? "
                             "AND status IN ('scheduled', 'nudged')", (user["id"],))
@@ -241,11 +259,21 @@ class Conversation:
         return [self._say(user, "stopped", lang, now)]
 
     def _start(self, user: dict, lang: str, now: datetime) -> List[Reply]:
+        """SPEC 6 step 4: nudges are back on."""
         self._update(user, opted_out=0)
         return [self._say(user, "started", lang, now)]
 
-    # ----- step 7: learning commands (learning.py writes the rows and the reply) -----
-    def _learning(self, user: dict, name: str, now: datetime) -> List[Reply]:
+    def _help(self, user: dict, lang: str, now: datetime) -> List[Reply]:
+        """SPEC 6 step 5: what Wazy can do."""
+        return [self._say(user, "help", lang, now)]
+
+    def _learning_answer(self, user: dict, yes: bool, now: datetime) -> List[Reply]:
+        """SPEC 6 step 6: YES or NO to the open learning question (learning.py records it and words the reply)."""
+        reply = learning.answer(self.db, user["id"], yes, now)
+        return [self._store(user["id"], reply, now)]
+
+    def _learning_command(self, user: dict, name: str, now: datetime) -> List[Reply]:
+        """SPEC 6 step 7: "what did you learn", "forget" or "learn again" (learning.py does the work)."""
         if name == "learn_what":
             reply = learning.explain(self.db, user["id"])
         elif name == "learn_forget":
@@ -256,7 +284,7 @@ class Conversation:
 
     # ----- step 8 and tap(): answering a nudge (SPEC 6.2) -----
     def _answer_open_nudge(self, user: dict, action: str, lang: str, now: datetime) -> List[Reply]:
-        """A typed "done" or "later" answers this person's most recent open nudge."""
+        """SPEC 6 step 8: a typed "done" or "later" answers this person's most recent open nudge."""
         nudge = self._open_nudge(user["id"])
         if nudge is None:
             return [self._say(user, "no_open_nudge", lang, now)]
@@ -273,9 +301,10 @@ class Conversation:
         return self.db.one(sql + " ORDER BY o.id DESC LIMIT 1", params)
 
     def _record_answer(self, user: dict, nudge: dict, action: str, lang: str, now: datetime) -> List[Reply]:
-        """Done closes the commitment. Later schedules exactly one more nudge. Then learning may ask."""
+        """SPEC 6.2: Done closes the commitment. Later schedules exactly one more nudge. Then learning may ask."""
         later_at = self.scheduler.later_time(user, now) if action == "later" else None
-        seconds = max(0, int((now - from_db(nudge["nudged_at"])).total_seconds()))
+        waited = now - from_db(nudge["nudged_at"])
+        seconds = max(0, int(waited.total_seconds()))               # how long the person took to answer
         with self.db.transaction():
             answered = self.db.execute(
                 "UPDATE nudge_outcomes SET outcome = ?, responded_at = ?, seconds_to_respond = ? "
@@ -296,6 +325,7 @@ class Conversation:
 
     def _ack(self, user: dict, nudge: dict, action: str, later_at: Optional[datetime], lang: str,
              now: datetime) -> Reply:
+        """Confirm the answer: done_ack for Done, or later_ack with the new nudge time for Later."""
         cid, title = nudge["commitment_id"], nudge["title"]
         if action == "done":
             return self._say(user, "done_ack", lang, now, commitment_id=cid, title=title)
@@ -304,7 +334,7 @@ class Conversation:
 
     # ----- step 9: list -----
     def _list(self, user: dict, lang: str, now: datetime) -> List[Reply]:
-        """The next 10 scheduled commitments, soonest first. Their numbers are saved for "cancel 2"."""
+        """SPEC 6 step 9: the next 10 scheduled commitments, soonest first, numbered for "cancel 2"."""
         rows = self._upcoming(user["id"])
         if not rows:
             self._update(user, last_list=None)
@@ -312,19 +342,23 @@ class Conversation:
         return [self._show_numbered(user, "list", rows, lang, now)]
 
     def _upcoming(self, user_id: str) -> List[dict]:
+        """This person's next 10 scheduled commitments, soonest first."""
         return self.db.query("SELECT id, title, nudge_at FROM commitments WHERE user_id = ? AND status = 'scheduled' "
                              "ORDER BY nudge_at, id LIMIT ?", (user_id, LIST_SIZE))
 
     def _show_numbered(self, user: dict, kind: str, rows: List[dict], lang: str, now: datetime) -> Reply:
         """Say a numbered list ("list" or "cancel_which") and remember which commitment each number means."""
         zone = self._zone(user)
-        items = [(n, row["title"], describe_when(from_db(row["nudge_at"]).astimezone(zone), now, lang))
-                 for n, row in enumerate(rows, start=1)]
+        items = []
+        for number, row in enumerate(rows, start=1):
+            when = from_db(row["nudge_at"]).astimezone(zone)
+            items.append((number, row["title"], describe_when(when, now, lang)))
         self._update(user, last_list=json.dumps([row["id"] for row in rows]))
         return self._say(user, kind, lang, now, items=items)
 
     # ----- steps 10 and 11: cancel -----
     def _cancel(self, user: dict, number: Optional[int], lang: str, now: datetime) -> List[Reply]:
+        """SPEC 6 step 10: "cancel 2" cancels item 2; a bare "cancel" drops a wait, else cancels the only one."""
         if number is not None:
             return self._cancel_number(user, number, lang, now)
         if self._waiting(user):                                       # "cancel" drops the question first
@@ -336,7 +370,10 @@ class Conversation:
 
     def _cancel_number(self, user: dict, number: int, lang: str, now: datetime) -> List[Reply]:
         """Cancel item N of the list the person last saw (or of the current list if they never saw one)."""
-        ids = json.loads(user["last_list"]) if user["last_list"] else [r["id"] for r in self._upcoming(user["id"])]
+        if user["last_list"]:
+            ids = json.loads(user["last_list"])
+        else:
+            ids = [row["id"] for row in self._upcoming(user["id"])]
         if 1 <= number <= len(ids):
             replies = self._cancel_commitment(user, ids[number - 1], lang, now)
             if replies:
@@ -344,6 +381,7 @@ class Conversation:
         return self._which_one(user, self._upcoming(user["id"]), lang, now)
 
     def _which_one(self, user: dict, rows: List[dict], lang: str, now: datetime) -> List[Reply]:
+        """Ask which one to cancel, showing the numbered list (or say there is nothing to cancel)."""
         if not rows:
             return [self._say(user, "nothing_to_cancel", lang, now)]
         return [self._show_numbered(user, "cancel_which", rows, lang, now)]
@@ -364,15 +402,25 @@ class Conversation:
         return [self._say(user, "cancelled", lang, now, commitment_id=row["id"], title=row["title"])]
 
     def _cancel_wait(self, user: dict, lang: str, now: datetime) -> List[Reply]:
-        """Forget the question Wazy is waiting on. The reader_misses row stays, unfixed."""
+        """SPEC 6 steps 10 and 11: forget the question Wazy is waiting on. The reader_misses row stays, unfixed."""
         title = user["pending_title"] or ""
         self._clear_wait(user)
         return [self._say(user, "pending_cancelled", lang, now, title=title)]
+
+    # ----- steps 12 and 13: not a commitment -----
+    def _refuse_injection(self, user: dict, lang: str, now: datetime) -> List[Reply]:
+        """SPEC 6 step 12: "I only take commitments". Nothing is stored as a commitment and any wait stays."""
+        return [self._say(user, "injection", lang, now)]
+
+    def _not_a_commitment(self, user: dict, reason: str, lang: str, now: datetime) -> List[Reply]:
+        """SPEC 6 step 13: a question or an edit is not a commitment (the reply mentions "list" and "cancel 2")."""
+        return [self._say(user, "not_commitment", lang, now, reason=reason)]
 
     # =========================================================================================
     # Step 14: reading a commitment
     # =========================================================================================
     def _read_commitment(self, user: dict, text: str, lang: str, now: datetime) -> List[Reply]:
+        """SPEC 6 step 14: a new commitment, or the answer to the question Wazy is waiting on."""
         reading = self._read(user, text, lang, now)
         if user["pending_title"] and not reading.title:               # the answer to "when ... about X?"
             return self._answer_waiting_task(user, text, reading, lang, now)
@@ -401,7 +449,7 @@ class Conversation:
             return
         title = answer.get("title")
         if isinstance(title, str) and clean_text(title):
-            reading.title = clean_text(title)[:120]
+            reading.title = clean_text(title)[:MAX_TITLE_LENGTH]
             reading.reader = self._ai_reader_name()
         when = answer.get("when")
         if reading.time.status == "none" and self._acceptable_time(when, now):
@@ -409,6 +457,7 @@ class Conversation:
             reading.reader = self._ai_reader_name()
 
     def _ai_reader_name(self) -> str:
+        """Who read a commitment the AI helped with, as stored in commitments.reader."""
         model = str(getattr(self.ai, "model", "")).lower()
         return "rules + Claude Haiku" if "haiku" in model else "rules + Claude"
 
@@ -423,7 +472,7 @@ class Conversation:
         """A message that is not the answer to a question Wazy asked."""
         t, title = reading.time, reading.title
         if t.status == "ok" and title:
-            return self._create(user, title, text, t.when, t.stated, t.deadline, reading.reader, lang, now)
+            return self._create(user, reading, text, lang, now)
         if t.status == "ok":
             return self._wait_for_task(user, text, t, lang, now)
         if t.status in ("vague", "none") and not title:
@@ -435,10 +484,10 @@ class Conversation:
         """Wazy asked when to nudge about the waiting task. A good time creates it and fixes the miss row;
         any problem is answered again for that task, and the wait is kept."""
         t, title = reading.time, user["pending_title"]
-        raw = f"{user['pending_raw']} / {text}"
         if t.status == "ok":
-            return self._create(user, title, raw, t.when, t.stated, t.deadline, reading.reader, lang, now,
-                                fixed_by=text)
+            task = Reading(time=t, title=title, reader=reading.reader)
+            raw = f"{user['pending_raw']} / {text}"
+            return self._create(user, task, raw, lang, now, fixed_by=text)
         kind, params = problem_reply(t, title)
         miss_id = self._log_miss(user, text, kind, now) if kind in MISS_KINDS else user["pending_miss_id"]
         self._wait_for_time(user, title, user["pending_raw"], miss_id, now)
@@ -449,11 +498,13 @@ class Conversation:
         """Wazy asked what to nudge about at the waiting time: this message is the task."""
         when = from_db(user["pending_when"]).astimezone(self._zone(user))
         if when < now - GRACE:                                        # that time went by while Wazy waited
-            return self._problem(user, TimeResult("past", detail=when.strftime("%H:%M")), reading.title, text,
-                                 lang, now)
+            gone = TimeResult("past", detail=when.strftime("%H:%M"))
+            return self._problem(user, gone, reading.title, text, lang, now)
+        saved = TimeResult("ok", when=when, stated=bool(user["pending_stated"]),
+                           deadline=bool(user["pending_deadline"]))
+        task = Reading(time=saved, title=reading.title, reader=reading.reader)
         raw = f"{user['pending_raw']} / {text}"
-        return self._create(user, reading.title, raw, when, bool(user["pending_stated"]),
-                            bool(user["pending_deadline"]), reading.reader, lang, now)
+        return self._create(user, task, raw, lang, now)
 
     def _problem(self, user: dict, t: TimeResult, title: str, text: str, lang: str, now: datetime) -> List[Reply]:
         """Say what is wrong with the time. If Wazy asked for a (better) time, log the miss and wait for it."""
@@ -476,20 +527,27 @@ class Conversation:
 
     # ----- the two kinds of wait -----
     def _waiting(self, user: dict) -> bool:
+        """Wazy is waiting for a missing time (pending_title) or a missing task (pending_when)."""
         return bool(user["pending_title"] or user["pending_when"])
 
     def _wait_for_time(self, user: dict, title: str, raw: str, miss_id: Optional[int], now: datetime) -> None:
         """Remember the task while Wazy waits for a time for it."""
-        self._update(user, **dict(NO_WAIT, pending_title=title, pending_raw=raw, pending_at=to_db(now),
-                                  pending_miss_id=miss_id))
+        self._set_wait(user, pending_title=title, pending_raw=raw, pending_at=to_db(now), pending_miss_id=miss_id)
 
     def _wait_for_task(self, user: dict, text: str, t: TimeResult, lang: str, now: datetime) -> List[Reply]:
         """A good time but no task: remember the time and ask what it is for."""
-        self._update(user, **dict(NO_WAIT, pending_when=to_db(t.when), pending_raw=text, pending_at=to_db(now),
-                                  pending_stated=int(t.stated), pending_deadline=int(t.deadline)))
+        self._set_wait(user, pending_when=to_db(t.when), pending_raw=text, pending_at=to_db(now),
+                       pending_stated=int(t.stated), pending_deadline=int(t.deadline))
         return [self._say(user, "ask_what", lang, now, when_text=describe_when(t.when, now, lang))]
 
+    def _set_wait(self, user: dict, **fields: Any) -> None:
+        """Replace whatever Wazy was waiting for with `fields`; the wait columns not given are emptied."""
+        wait = dict(NO_WAIT)
+        wait.update(fields)
+        self._update(user, **wait)
+
     def _clear_wait(self, user: dict) -> None:
+        """Wazy is no longer waiting for anything."""
         self._update(user, **NO_WAIT)
 
     def _log_miss(self, user: dict, text: str, kind: str, now: datetime) -> int:
@@ -499,22 +557,26 @@ class Conversation:
         return int(cursor.lastrowid)
 
     # ----- SPEC 6.1: creating a commitment -----
-    def _create(self, user: dict, title: str, raw: str, when: datetime, stated: bool, deadline: bool, reader: str,
-                lang: str, now: datetime, fixed_by: Optional[str] = None) -> List[Reply]:
-        """Store the commitment, clear the wait, re-subscribe the person, and confirm in one line."""
-        when, source = self._choose_time(user, when.astimezone(self._zone(user)), stated, deadline, now)
+    def _create(self, user: dict, reading: Reading, raw: str, lang: str, now: datetime,
+                fixed_by: Optional[str] = None) -> List[Reply]:
+        """SPEC 6.1: store the commitment, clear the wait, re-subscribe the person, and confirm in one line.
+
+        `raw` is what the person typed; `fixed_by` is their reply that answered Wazy's question, saved in
+        that question's reader_misses row."""
+        t = reading.time
+        when, source = self._choose_time(user, t.when.astimezone(self._zone(user)), t.stated, t.deadline, now)
         with self.db.transaction():
             if self._count_scheduled(user["id"]) >= MAX_SCHEDULED:
                 commitment_id = None
             else:
-                commitment_id = self._insert(user, title, raw, when, source, deadline, reader, now)
+                commitment_id = self._insert(user, reading.title, raw, when, source, t.deadline, reading.reader,
+                                             now)
                 if fixed_by is not None and user["pending_miss_id"]:
-                    self.db.execute("UPDATE reader_misses SET reply = ?, fixed_at = ? WHERE id = ? AND user_id = ?",
-                                    (fixed_by, to_db(now), user["pending_miss_id"], user["id"]))
+                    self._mark_miss_fixed(user, fixed_by, now)
                 self._update(user, opted_out=0, **NO_WAIT)
-        if commitment_id is None:
+        if commitment_id is None:                                     # too many upcoming commitments
             return [self._say(user, "not_commitment", lang, now, reason="limit")]
-        return [self._say(user, "confirm", lang, now, commitment_id=commitment_id, title=title,
+        return [self._say(user, "confirm", lang, now, commitment_id=commitment_id, title=reading.title,
                           when_text=describe_when(when, now, lang), learned=source == "learned")]
 
     @staticmethod
@@ -535,16 +597,23 @@ class Conversation:
         return candidate, "learned"
 
     def _count_scheduled(self, user_id: str) -> int:
+        """How many upcoming (scheduled) commitments this person has."""
         return self.db.scalar("SELECT COUNT(*) FROM commitments WHERE user_id = ? AND status = 'scheduled'",
                               (user_id,))
 
     def _insert(self, user: dict, title: str, raw: str, when: datetime, source: str, deadline: bool, reader: str,
                 now: datetime) -> int:
+        """Add the commitments row (status "scheduled", nudge_at in UTC) and return its id."""
         cursor = self.db.execute(
             "INSERT INTO commitments (user_id, raw_text, title, nudge_at, status, reader, time_source, deadline, "
             "created_at) VALUES (?, ?, ?, ?, 'scheduled', ?, ?, ?, ?)",
             (user["id"], raw, title, to_db(when), reader, source, int(deadline), to_db(now)))
         return int(cursor.lastrowid)
+
+    def _mark_miss_fixed(self, user: dict, reply: str, now: datetime) -> None:
+        """The reader_misses row of Wazy's question gets the reply that fixed it, and when."""
+        self.db.execute("UPDATE reader_misses SET reply = ?, fixed_at = ? WHERE id = ? AND user_id = ?",
+                        (reply, to_db(now), user["pending_miss_id"], user["id"]))
 
     # =========================================================================================
     # Small helpers
@@ -572,10 +641,8 @@ class Conversation:
         user.update(fields)
 
     def _zone(self, user: dict) -> tzinfo:
-        try:
-            return ZoneInfo(user["tz"])
-        except (KeyError, ValueError):                               # a broken zone name: use the default
-            return ZoneInfo(self.db.default_tz)
+        """The person's time zone."""
+        return zone_or_default(user["tz"], self.db.default_tz)
 
     def _lock_for(self, user_id: str) -> threading.RLock:
         """One lock per person: two messages from the same person are handled one after the other."""

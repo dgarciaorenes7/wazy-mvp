@@ -1,6 +1,9 @@
 """Decide what kind of message a person sent to Wazy (SPEC section 5).
 
-classify(text) answers with an Intent (see wazy/types.py). The checks run in this order:
+conversation.py calls classify(text) for every message, and then acts on the answer: a command such as
+"stop" or "list", an instruction aimed at Wazy, a question, or "text" (a commitment to read). classify()
+answers with an Intent (see wazy/types.py) and uses only word lists and simple rules, no AI.
+The word helpers come from lang.py. The checks run in this order:
 
 1. "empty": nothing but spaces.
 2. A command, but only when the WHOLE message is the command: "stop", "help", "list", "done",
@@ -26,8 +29,8 @@ from __future__ import annotations
 import re
 from typing import FrozenSet, List, Optional
 
-from wazy.lang import strip_accents, words_in
-from wazy.types import Intent
+from .lang import strip_accents, words_in
+from .types import Intent
 
 
 # ---- turning a message into plain words ----------------------------------------------------------
@@ -57,7 +60,11 @@ def contains_phrase(words: List[str], phrase_set: FrozenSet[str]) -> bool:
 
 def starts_with_phrase(words: List[str], phrase_set: FrozenSet[str]) -> bool:
     """True if the words begin with one of the phrases."""
-    return any(words[:len(phrase.split())] == phrase.split() for phrase in phrase_set)
+    for phrase in phrase_set:
+        phrase_words = phrase.split()
+        if words[:len(phrase_words)] == phrase_words:
+            return True
+    return False
 
 
 def ends_like_question(message: str) -> bool:
@@ -110,6 +117,8 @@ LEARN_RESUME_PHRASES = phrases(
     "learn again", "start learning", "resume learning",
     "vuelve a aprender", "aprende otra vez",
 )
+# Not "what do I have tomorrow" / "¿qué tengo mañana?": the list shows everything upcoming, so a
+# question about one day is a question (SPEC: commands match the whole message only).
 LIST_PHRASES = phrases(
     "list", "my list", "what's on", "what's coming up", "what do i have", "reminders", "my reminders",
     "show my reminders", "show me my reminders", "show reminders", "show my list", "show list",
@@ -117,8 +126,6 @@ LIST_PHRASES = phrases(
     "lista", "mi lista", "qué tengo", "mis recordatorios", "recordatorios", "ver lista",
     "qué tengo pendiente",
 )
-# Not "what do I have tomorrow" / "¿qué tengo mañana?": the list shows everything upcoming, so a
-# question about one day is a question (SPEC: commands match the whole message only).
 # Checked in this order. The lists never share a phrase (a test makes sure).
 COMMAND_TABLES = (
     ("stop", STOP_PHRASES),
@@ -142,6 +149,7 @@ CANCEL_PENDING_PHRASES = phrases(
     "da igual", "déjalo", "olvídalo", "nada",
 )
 
+# While Wazy waits, a bare "forget" / "olvida" drops the wait (see match_command).
 PENDING_FORGET_WORDS = phrases("forget", "olvida")
 
 # Only while Wazy's learning question is open. Any mix of these words counts ("sí, vale").
@@ -162,10 +170,11 @@ GREETING_WORDS = phrases("hi", "hello", "hey", "hola", "buenas")
 DONE_SYMBOLS = {"✓", "✔", "✅", "☑"}
 
 
-def without_fillers(words: List[str], keep: FrozenSet[str] = frozenset()) -> List[str]:
+def without_fillers(words: List[str], keep: FrozenSet[str] = frozenset(), at_end_too: bool = True) -> List[str]:
     """Remove polite words from both ends: ["please", "cancel", "2", "thanks"] -> ["cancel", "2"].
 
     Fillers listed in `keep` stay (for yes/no, "ok" and "vale" are the answer itself).
+    With at_end_too=False only the start is cleaned: ["hola", "qué", "tal"] -> ["qué", "tal"].
     """
     words = list(words)
     changed = True
@@ -177,7 +186,7 @@ def without_fillers(words: List[str], keep: FrozenSet[str] = frozenset()) -> Lis
             if words[:size] == filler_words:
                 words = words[size:]
                 changed = True
-            elif len(words) >= size and words[-size:] == filler_words:
+            elif at_end_too and len(words) >= size and words[-size:] == filler_words:
                 words = words[:-size]
                 changed = True
     return words
@@ -274,7 +283,7 @@ def match_command(message: str, words: List[str], pending: bool, learning_questi
         # Nothing but symbols and polite words: "?", "✅", "ok ✅", "hola wazy", "thanks".
         if not words and "?" in message:
             return Intent("help")
-        if any(ch in DONE_SYMBOLS for ch in strip_accents(message)):
+        if any(char in DONE_SYMBOLS for char in message):
             return Intent("done")
         if any(word in GREETING_WORDS for word in words):
             return Intent("greeting")
@@ -412,6 +421,7 @@ def has_code_with_instructions(message: str, words: List[str]) -> bool:
 
 
 def is_injection(message: str, words: List[str]) -> bool:
+    """Any of the four signs of an instruction aimed at Wazy (SPEC section 5, "injection")."""
     return (tells_to_ignore_rules(words)
             or contains_phrase(words, INJECTION_PHRASES)
             or asks_to_play_a_role(words)
@@ -445,6 +455,7 @@ EDIT_IT_WORDS = phrases(
 
 
 def refers_to_reminder(after_verb: List[str]) -> bool:
+    """The words after "change"/"move" name the reminder itself: "it", "the time", "that to 5"."""
     if starts_with_phrase(after_verb, EDIT_OBJECTS):
         return True
     if after_verb[:1] in (["this"], ["that"]):
@@ -480,36 +491,24 @@ ES_QUESTION_WORDS = {"qué", "cuándo", "cuando", "dónde", "donde", "quién", "
 
 
 def is_question(message: str, words: List[str]) -> bool:
+    """Ends with "?" or starts with "¿", or starts with a question word ("what", "do you", "cuándo")."""
     if ends_like_question(message):
         return True
-    start = len(words) - len(lead_in_removed(words))     # skip "hey", "please", "hola", "oye" ...
-    if start >= len(words):
+    rest = without_fillers(words, at_end_too=False)      # skip "hey", "please", "hola", "oye" ...
+    if not rest:
         return False
-    first = words[start]
-    following = words[start + 1] if start + 1 < len(words) else ""
-    first_with_accents = words_in(message)[start]
+    first = rest[0]
+    following = rest[1] if len(rest) > 1 else ""
     if first in EN_QUESTION_WORDS:
         return True
     if first in EN_HELPER_VERBS:
         pronouns = DO_PRONOUNS if first == "do" else PRONOUNS
         return following in pronouns
+    skipped = len(words) - len(rest)                      # how many polite words came first
+    first_with_accents = words_in(message)[skipped]
     if first_with_accents in ES_QUESTION_WORDS:
         return True
     return first == "por" and following == "que"         # "por qué" / "por que"
-
-
-def lead_in_removed(words: List[str]) -> List[str]:
-    """Drop polite words and greetings at the START only: ["hola", "qué", "tal"] -> ["qué", "tal"]."""
-    words = list(words)
-    changed = True
-    while changed and words:
-        changed = False
-        for filler in FILLERS:
-            filler_words = filler.split()
-            if words[:len(filler_words)] == filler_words:
-                words = words[len(filler_words):]
-                changed = True
-    return words
 
 
 # ---- the public function -------------------------------------------------------------------------

@@ -1,24 +1,24 @@
 """Make the clean task title for a commitment (SPEC section 4).
 
+conversation.py calls make_title(text, spans) for every message it reads as a commitment, right after the
+time reader (timeparse.py) has said where the time words are, as spans of the original text.
 A message like "Hey, remind me to call mum tomorrow at 5 please" holds a task ("Call mum") wrapped in
-chat: a greeting, a request to Wazy, the time and a "please". The time reader (timeparse.py) tells us where
-the time words are, as spans of the original text. This module cuts those spans out, peels the chat off
-both ends, tidies what is left and gives it a capital first letter, at most 120 characters long.
+chat: a greeting, a request to Wazy, the time and a "please". This module cuts the time spans out, peels the
+chat off both ends, tidies what is left and gives it a capital first letter, at most 120 characters long.
 If no task is left (only filler, only a time, only noise like "ok" or "thanks"), the title is "" and the
-conversation asks what the reminder is for.
-
-Words are compared ignoring case, accents and apostrophes, so "Recuerdame" matches "recuérdame" and
-"dont forget to" matches "don't forget to". The words that are kept stay exactly as typed.
+conversation asks what the reminder is for. Words are compared ignoring case, accents and apostrophes, so
+"Recuerdame" matches "recuérdame" and "dont forget to" matches "don't forget to", but the words that are
+kept stay exactly as typed.
 """
 from __future__ import annotations
 
 import re
-import unicodedata
 from typing import List, Optional, Sequence, Tuple
 
+from .lang import strip_accents
 from .types import Span
 
-MAX_LENGTH = 120
+MAX_LENGTH = 120                # longest title, in characters (SPEC 4, step 4)
 
 # Chat before the task, removed from the start again and again ("Hey Wazy, please remind me to ...").
 OPENING_FILLER = [
@@ -110,8 +110,7 @@ def tidy_gaps(text: str) -> str:
 
 def key(word: str) -> str:
     """The form words are compared in: lower case, no accents, no apostrophes, no punctuation at the edges."""
-    plain = unicodedata.normalize("NFD", word.lower())
-    plain = "".join(char for char in plain if not unicodedata.combining(char))
+    plain = strip_accents(word.lower())
     return plain.replace("'", "").replace("’", "").strip(EDGE_MARKS)
 
 
@@ -120,7 +119,9 @@ def as_keys(phrases: List[str]) -> List[Tuple[str, ...]]:
     return sorted((tuple(key(word) for word in phrase.split()) for phrase in phrases), key=len, reverse=True)
 
 
-OPENING_KEYS, CLOSING_KEYS, NOISE_KEYS = as_keys(OPENING_FILLER), as_keys(CLOSING_FILLER), as_keys(NOISE)
+OPENING_KEYS = as_keys(OPENING_FILLER)
+CLOSING_KEYS = as_keys(CLOSING_FILLER)
+NOISE_KEYS = as_keys(NOISE)
 
 
 def phrase_at(words: List[str], phrases: List[Tuple[str, ...]], at_end: bool = False) -> Optional[tuple]:
@@ -138,10 +139,12 @@ def is_loose(word: str) -> bool:
 
 
 def is_loose_at_start(word: str) -> bool:
+    """A loose word that may be dropped from the start (articles such as "the" stay)."""
     return is_loose(word) and key(word) not in KEEP_AT_START
 
 
 def is_loose_at_end(word: str) -> bool:
+    """A loose word that may be dropped from the end ("on" and "in" stay: "Turn the heating on")."""
     return is_loose(word) and key(word) not in KEEP_AT_END
 
 
@@ -176,15 +179,21 @@ def trim_end(words: List[str]) -> List[str]:
     """Drop politeness, joiners and lone punctuation from the end, again and again."""
     while words:
         phrase = phrase_at(words, CLOSING_KEYS, at_end=True)
-        # "say thanks", "dar las gracias": the word before shows the polite word is the task, so it stays.
-        word_before = words[-len(phrase) - 1] if phrase and len(words) > len(phrase) else ""
-        if phrase and key(word_before) not in COURTESY_IS_THE_TASK_AFTER:
+        if phrase and not courtesy_is_the_task(words, len(phrase)):
             words = words[:-len(phrase)]
         elif is_loose_at_end(words[-1]):
             words = words[:-1]
         else:
             break
     return words
+
+
+def courtesy_is_the_task(words: List[str], polite_size: int) -> bool:
+    """ "say thanks", "dar las gracias": the word before the last `polite_size` words shows they are the task."""
+    if len(words) <= polite_size:
+        return False
+    word_before = words[-polite_size - 1]
+    return key(word_before) in COURTESY_IS_THE_TASK_AFTER
 
 
 def looks_like_a_task(words: List[str]) -> bool:
@@ -194,6 +203,7 @@ def looks_like_a_task(words: List[str]) -> bool:
 
 
 def is_laughter(word: str) -> bool:
+    """ "jajaja", "hahaha", "hmmm", "ummm"."""
     return LAUGH_OR_HUM.fullmatch(key(word)) is not None
 
 

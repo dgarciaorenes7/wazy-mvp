@@ -1,10 +1,11 @@
-"""The App: the one object the server, WhatsApp, the tests and the evals talk to (SPEC section 2).
+"""The App: the one object the server, WhatsApp, the tests and the evals talk to (SPEC sections 2 and 2.1).
 
-It builds the three working parts and gives them the time from one clock:
+server.py and whatsapp.py call handle() for each message, tap() for each Done / Later button and tick()
+every second; App adds "now" from its clock (tests and evals freeze that clock) and passes each call on.
+It builds the three working parts:
   * the Database (db.py), where everything is kept,
   * the Scheduler (scheduler.py), which sends the nudges that are due,
   * the Conversation (conversation.py), which answers each message and each Done / Later tap.
-
 It also builds the two snapshots the screens show: state(user_id) for one person's chat, and admin_state()
 for the presenter view (everyone). A person's snapshot only ever holds that person's rows.
 """
@@ -15,13 +16,13 @@ from typing import Any, Callable, List, Optional
 
 from zoneinfo import ZoneInfo
 
-from .conversation import Conversation
+from .conversation import Conversation, zone_or_default
 from .db import Database, from_db
 from .scheduler import Scheduler
 from .types import Reply
 
-LATEST = 50                     # rows of each list in a snapshot
-MESSAGES_SHOWN = 200            # chat messages in a snapshot
+LATEST = 50                     # rows of each list in a snapshot (SPEC 2.1, state() details)
+MESSAGES_SHOWN = 200            # chat messages in a snapshot (SPEC 2, state())
 
 # "? IS NULL OR user_id = ?" in the queries below means: everyone when no user is given (admin_state).
 MESSAGES_SQL = ("SELECT id, role, text, kind, lang, commitment_id, created_at FROM "
@@ -105,16 +106,18 @@ class App:
                 self.db.execute(f"DELETE FROM {table}")
 
     def close(self) -> None:
+        """Close the database (the App cannot be used afterwards)."""
         self.db.close()
 
     # ----- building the snapshots -----
     def _snapshot(self, user_id: Optional[str]) -> dict:
         """Everything except the chat messages, for one person (user_id) or for everyone (None)."""
-        who = (user_id, user_id)
+        open_nudges = self.db.query(OPEN_SQL, (user_id, user_id))
+        commitments = self.db.query(COMMITMENTS_SQL, (user_id, user_id, LATEST))
         return {
-            "open": [row["id"] for row in self.db.query(OPEN_SQL, who)],
-            "commitments": [self._with_local_time(row) for row in self.db.query(COMMITMENTS_SQL, who + (LATEST,))],
-            "outcomes": self.db.query(OUTCOMES_SQL, who + (LATEST,)),
+            "open": [row["id"] for row in open_nudges],
+            "commitments": [self._with_local_time(row) for row in commitments],
+            "outcomes": self.db.query(OUTCOMES_SQL, (user_id, user_id, LATEST)),
             "stats": self._stats(user_id),
             "learning_log": self._newest("learning_log", user_id),
             "reader_misses": self._newest("reader_misses", user_id),
@@ -126,7 +129,7 @@ class App:
 
     def _with_local_time(self, row: dict) -> dict:
         """Add nudge_at_local: the nudge time on the person's own clock, "YYYY-MM-DDTHH:MM:SS"."""
-        zone = self._zone(row.pop("tz"))
+        zone = zone_or_default(row.pop("tz"), self.db.default_tz)
         row["nudge_at_local"] = from_db(row["nudge_at"]).astimezone(zone).strftime("%Y-%m-%dT%H:%M:%S")
         return row
 
@@ -143,9 +146,3 @@ class App:
         """The newest 50 rows of learning_log or reader_misses."""
         return self.db.query(f"SELECT * FROM {table} WHERE (? IS NULL OR user_id = ?) ORDER BY id DESC LIMIT ?",
                              (user_id, user_id, LATEST))
-
-    def _zone(self, name: str) -> Any:
-        try:
-            return ZoneInfo(name)
-        except (KeyError, ValueError):               # a broken zone name: show the default zone
-            return self.zone

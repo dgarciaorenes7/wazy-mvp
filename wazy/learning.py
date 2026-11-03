@@ -18,8 +18,9 @@ Where the hours come from:
 
 Every question, answer, "forget" and "learn again" is a row in learning_log (the question with the
 numbers behind it), so the person and David can see exactly why Wazy asked.
-None of these functions stores a chat message: the caller (conversation.py or scheduler.py) stores the
-Reply and delivers it.
+Who calls this file: conversation.py (after a Done/Later answer, and for "yes", "no", "what did you learn",
+"forget", "learn again"), scheduler.py (after a nudge gets no reply), and both use usual_hour() when they
+choose a time. None of these functions stores a chat message: the caller stores the Reply and delivers it.
 """
 from __future__ import annotations
 
@@ -69,11 +70,7 @@ def evidence(db: Database, user_id: str) -> dict:
     user = _user(db, user_id)
     zone = ZoneInfo(user["tz"])
     current = usual_hour(user)
-    rows = db.query(
-        "SELECT o.outcome, o.scheduled_for, o.responded_at, c.time_source "
-        "FROM nudge_outcomes o JOIN commitments c ON c.id = o.commitment_id "
-        "WHERE o.user_id = ? AND o.outcome IN ('done', 'later', 'no_reply') "    # answered (no reply counts)
-        "ORDER BY o.id DESC LIMIT ?", (user_id, LAST_ANSWERED))
+    rows = _last_answered_nudges(db, user_id)
     by_hour: dict = {}
     done_taps: dict = {}            # hour the person tapped Done -> how many times
     answered_at_current = done_at_current = 0
@@ -102,6 +99,15 @@ def evidence(db: Database, user_id: str) -> dict:
     }
 
 
+def _last_answered_nudges(db: Database, user_id: str) -> list:
+    """The person's last 30 answered nudges (Done, Later or no reply), newest first."""
+    return db.query(
+        "SELECT o.outcome, o.scheduled_for, o.responded_at, c.time_source "
+        "FROM nudge_outcomes o JOIN commitments c ON c.id = o.commitment_id "
+        "WHERE o.user_id = ? AND o.outcome IN ('done', 'later', 'no_reply') "
+        "ORDER BY o.id DESC LIMIT ?", (user_id, LAST_ANSWERED))
+
+
 def _best_hour(done_taps: dict, current: int) -> Optional[int]:
     """The other hour between 08 and 21 with the most Done taps.
 
@@ -110,7 +116,12 @@ def _best_hour(done_taps: dict, current: int) -> Optional[int]:
     candidates = [hour for hour in done_taps if hour != current and EARLIEST_HOUR <= hour <= LATEST_HOUR]
     if not candidates:
         return None
-    return max(candidates, key=lambda hour: (done_taps[hour], -abs(hour - current), -hour))
+
+    def ranking(hour: int) -> tuple:
+        """Compared left to right, bigger wins: more Done taps, then closer to the usual hour, then earlier."""
+        return (done_taps[hour], -abs(hour - current), -hour)
+
+    return max(candidates, key=ranking)
 
 
 def _rule_says_ask(e: dict) -> bool:
@@ -207,6 +218,7 @@ def resume(db: Database, user_id: str, now: datetime) -> Reply:
 # Small helpers
 # ---------------------------------------------------------------------------------------------
 def _user(db: Database, user_id: str) -> dict:
+    """The person's row from the users table (a missing person is a bug in the caller)."""
     user = db.one("SELECT * FROM users WHERE id = ?", (user_id,))
     if user is None:
         raise KeyError(f"no such user: {user_id}")
@@ -221,7 +233,6 @@ def _local_hour(utc_text: str, zone: ZoneInfo) -> int:
 def _log(db: Database, user_id: str, event: str, old_hour: Optional[int], new_hour: Optional[int],
          numbers: Optional[dict], now: datetime) -> None:
     """One row in learning_log; `numbers` is the evidence behind the event, stored as JSON."""
+    numbers_json = json.dumps(numbers) if numbers is not None else None
     db.execute("INSERT INTO learning_log (user_id, event, old_hour, new_hour, evidence, created_at) "
-               "VALUES (?, ?, ?, ?, ?, ?)",
-               (user_id, event, old_hour, new_hour, json.dumps(numbers) if numbers is not None else None,
-                to_db(now)))
+               "VALUES (?, ?, ?, ?, ?, ?)", (user_id, event, old_hour, new_hour, numbers_json, to_db(now)))

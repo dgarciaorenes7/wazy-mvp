@@ -1,11 +1,11 @@
-"""Settings for Wazy, read from environment variables and an optional .env file.
+"""Settings for Wazy, read from environment variables and an optional .env file (SPEC section 8).
 
+server.py calls load_config() once when Wazy starts, and builds everything else from the Config it returns.
 Every setting is optional. With nothing set, Wazy runs on this computer only, with the rule-based
 reader and no WhatsApp. Real environment variables always win over the .env file.
-
-Fail closed: a setting that is present but wrong (a port that is not a number, a time zone that does
-not exist, half of the Twilio settings...) raises ConfigError with a message naming the setting, and
-the server refuses to start. Secret values are never repeated in those messages.
+Fail closed (product promise 5): a setting that is present but wrong (a port that is not a number, a time
+zone that does not exist, half of the Twilio settings...) raises ConfigError with a message naming the
+setting, and the server refuses to start. Secret values are never repeated in those messages.
 """
 from __future__ import annotations
 
@@ -15,11 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Mapping, Optional
 from urllib.parse import urlparse
-
-try:
-    from zoneinfo import ZoneInfo
-except ImportError:  # pragma: no cover - Python < 3.9 is not supported
-    ZoneInfo = None  # type: ignore
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parent.parent          # the project folder (where .env lives)
 DEFAULT_DOTENV = ROOT / ".env"
@@ -41,6 +37,10 @@ CONTENT_SID = re.compile(r"^HX[0-9a-fA-F]{32}$")
 DOTENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 TWILIO_REQUIRED = ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_WHATSAPP_FROM")
+TWILIO_SETTINGS = TWILIO_REQUIRED + ("TWILIO_CONTENT_SID",)
+ACCESS_CODE_MIN = 8             # shortest WAZY_ACCESS_CODE (SPEC section 8)
+ADMIN_CODE_MIN = 12             # shortest WAZY_ADMIN_CODE (SPEC section 8)
+LATER_MINUTES_MAX = 1440        # WAZY_LATER_MINUTES is 1 minute to 1 day
 
 
 class ConfigError(Exception):
@@ -128,17 +128,18 @@ def load_config(env: Optional[Mapping[str, str]] = None, dotenv: Optional[Path] 
         settings.update(env)
 
     def get(name: str) -> str:
+        """The value of one setting with spaces trimmed, or "" when it is not set."""
         return str(settings.get(name, "")).strip()
 
-    twilio = _twilio(get)
+    twilio = _twilio({name: get(name) for name in TWILIO_SETTINGS})
     public_url = _public_url(get("WAZY_PUBLIC_URL"), twilio_on=bool(twilio["twilio_account_sid"]))
-    access_code = _code("WAZY_ACCESS_CODE", get("WAZY_ACCESS_CODE"), 8)
-    admin_code = _code("WAZY_ADMIN_CODE", get("WAZY_ADMIN_CODE"), 12)
+    access_code = _code("WAZY_ACCESS_CODE", get("WAZY_ACCESS_CODE"), ACCESS_CODE_MIN)
+    admin_code = _code("WAZY_ADMIN_CODE", get("WAZY_ADMIN_CODE"), ADMIN_CODE_MIN)
     if admin_code and admin_code == access_code:
         raise ConfigError("WAZY_ADMIN_CODE must be different from WAZY_ACCESS_CODE.")
     return Config(
         host=_host(get("WAZY_HOST")),
-        port=_port(get),
+        port=_port(get("WAZY_PORT"), get("PORT")),
         tz=_zone(get("WAZY_TZ")),
         db_path=get("WAZY_DB") or DEFAULT_DB,
         anthropic_api_key=_api_key(get("ANTHROPIC_API_KEY")),
@@ -152,6 +153,7 @@ def load_config(env: Optional[Mapping[str, str]] = None, dotenv: Optional[Path] 
 
 
 def _host(value: str) -> str:
+    """The address to listen on: 127.0.0.1 (this computer only) unless WAZY_HOST says otherwise."""
     if not value:
         return "127.0.0.1"
     if not HOST.match(value):
@@ -159,16 +161,17 @@ def _host(value: str) -> str:
     return value
 
 
-def _port(get) -> int:
+def _port(wazy_port: str, port: str) -> int:
     """WAZY_PORT wins; otherwise PORT, which hosting platforms set for you; otherwise 8765."""
-    name = "WAZY_PORT" if get("WAZY_PORT") else "PORT"
-    value = get(name)
-    if not value:
-        return DEFAULT_PORT
-    return _whole_number(name, value, 1, 65535)
+    if wazy_port:
+        return _whole_number("WAZY_PORT", wazy_port, 1, 65535)
+    if port:
+        return _whole_number("PORT", port, 1, 65535)
+    return DEFAULT_PORT
 
 
 def _whole_number(name: str, value: str, low: int, high: int) -> int:
+    """`value` as a number, or ConfigError when it is not a whole number from `low` to `high`."""
     if not WHOLE_NUMBER.match(value) or not low <= int(value) <= high:
         raise ConfigError(f"{name} must be a whole number from {low} to {high} (got '{value}').")
     return int(value)
@@ -185,12 +188,14 @@ def _zone(value: str) -> str:
 
 
 def _api_key(value: str) -> str:
+    """The optional Anthropic key for the AI title tidier ("" means: rules only)."""
     if value and not API_KEY.match(value):
         raise ConfigError("ANTHROPIC_API_KEY does not look like an Anthropic key (it must start with sk-ant-).")
     return value
 
 
 def _model(value: str) -> str:
+    """The Claude model name, or the default one."""
     if not value:
         return DEFAULT_MODEL
     if not MODEL.match(value):
@@ -199,21 +204,24 @@ def _model(value: str) -> str:
 
 
 def _later_minutes(value: str) -> Optional[int]:
+    """For demos: Later nudges again after this many minutes. None means the normal rule (next morning)."""
     if not value:
         return None
-    return _whole_number("WAZY_LATER_MINUTES", value, 1, 1440)
+    return _whole_number("WAZY_LATER_MINUTES", value, 1, LATER_MINUTES_MAX)
 
 
 def _code(name: str, value: str, shortest: int) -> str:
+    """An optional access or admin code: at least `shortest` characters, safe in a link and a cookie."""
     if value and (len(value) < shortest or not CODE.match(value)):
         raise ConfigError(f"{name} must be at least {shortest} characters, using only letters, digits, - and _.")
     return value
 
 
-def _twilio(get) -> Dict[str, str]:
-    """WhatsApp settings: the three required ones are all set or all empty. Each must look right."""
-    missing = [name for name in TWILIO_REQUIRED if not get(name)]
-    content_sid = get("TWILIO_CONTENT_SID")
+def _twilio(values: Dict[str, str]) -> Dict[str, str]:
+    """WhatsApp settings (`values`: setting name -> value): the three required ones are all set or all
+    empty, and each one that is set must look right. Returns the matching Config fields."""
+    missing = [name for name in TWILIO_REQUIRED if not values[name]]
+    content_sid = values["TWILIO_CONTENT_SID"]
     if missing and (len(missing) < len(TWILIO_REQUIRED) or content_sid):
         raise ConfigError("WhatsApp needs TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_WHATSAPP_FROM "
                           f"together. Missing: {', '.join(missing)}.")
@@ -222,10 +230,10 @@ def _twilio(get) -> Dict[str, str]:
               ("TWILIO_WHATSAPP_FROM", WHATSAPP_FROM, "whatsapp:+ followed by the number's digits"),
               ("TWILIO_CONTENT_SID", CONTENT_SID, "HX followed by 32 hex characters"))
     for name, pattern, looks_like in checks:
-        if get(name) and not pattern.match(get(name)):
+        if values[name] and not pattern.match(values[name]):
             raise ConfigError(f"{name} is not valid: it must be {looks_like}.")
-    return {"twilio_account_sid": get("TWILIO_ACCOUNT_SID"), "twilio_auth_token": get("TWILIO_AUTH_TOKEN"),
-            "twilio_from": get("TWILIO_WHATSAPP_FROM"), "twilio_content_sid": content_sid}
+    return {"twilio_account_sid": values["TWILIO_ACCOUNT_SID"], "twilio_auth_token": values["TWILIO_AUTH_TOKEN"],
+            "twilio_from": values["TWILIO_WHATSAPP_FROM"], "twilio_content_sid": content_sid}
 
 
 def _public_url(value: str, twilio_on: bool) -> str:
