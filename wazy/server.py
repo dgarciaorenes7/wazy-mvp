@@ -22,6 +22,7 @@ import hmac
 import json
 import re
 import secrets
+import signal
 import sys
 import threading
 import time
@@ -595,6 +596,10 @@ def startup_message(config: Config, server: WazyServer, show_code: bool = True) 
             f"\n  Press Ctrl+C to stop.\n")
 
 
+def stop_on_sigterm(signum: int, frame: Any) -> None:
+    raise KeyboardInterrupt
+
+
 def main() -> None:
     try:
         config = load_config()
@@ -614,6 +619,9 @@ def main() -> None:
     if whatsapp:
         whatsapp.start()
     print(startup_message(config, server, show_code=sys.stdout.isatty()), flush=True)
+    # A hosting platform stops the server with SIGTERM, not Ctrl+C. Treat it the same way, so the
+    # scheduler and the WhatsApp sender stop and the database is closed cleanly.
+    signal.signal(signal.SIGTERM, stop_on_sigterm)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
