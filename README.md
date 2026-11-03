@@ -161,15 +161,15 @@ A command counts only when it is the **whole** message, so "stop smoking tomorro
 | English | Spanish | What happens |
 |---|---|---|
 | a commitment, like `call mum tomorrow at 9am` | `recuérdame llamar a mamá mañana a las 9` | Wazy confirms the title and the exact nudge time, or says what is wrong with the time and asks one question. |
-| `stop` | `para`, `basta` | Every upcoming nudge stops and Wazy sends nothing more. Nothing is deleted. |
+| `stop`, `unsubscribe me` | `para`, `basta`, `deja de avisarme` | Every upcoming nudge stops and Wazy sends nothing more. Nothing is deleted. |
 | `start` | `empezar`, `reanudar` | Nudges are back on. Texting a new commitment does this too. |
 | `help` | `ayuda` | The list of commands. |
 | `hi` | `hola` | The welcome message. |
 | `done` | `hecho`, `listo` | Answers your newest open nudge with Done (the same as the button). |
 | `later` | `más tarde`, `luego` | Answers it with Later: one more nudge, by default the next morning at your usual hour. |
-| `list` | `lista`, `qué tengo` | Your next 10 upcoming commitments, numbered, soonest first. |
-| `cancel 2` | `cancela 2`, `borra 2` | Cancels number 2 of the list you saw last. |
-| `cancel` | `cancela` | Drops the question Wazy is waiting on. Otherwise it cancels your only upcoming commitment, or asks which one. |
+| `list`, `show me my list` | `lista`, `qué tengo` | Your next 10 upcoming commitments, numbered, soonest first. |
+| `cancel 2`, `cancel 1 and 3` | `cancela 2`, `borra 2`, `cancela 1 y 3` | Cancels those numbers of the list you saw last. If one number is not on the list, nothing is cancelled and Wazy shows the list. |
+| `cancel`, `cancel all` | `cancela`, `cancela todo` | Drops the question Wazy is waiting on. Otherwise it cancels your only upcoming commitment, or asks which one. |
 | `never mind`, `skip` | `olvídalo`, `da igual`, `déjalo` | Only while Wazy is waiting for a missing time or task: drops that question. |
 | `what did you learn` | `qué has aprendido` | Explains what Wazy noticed about your timing, with the real numbers. |
 | `forget` | `olvida` | Wipes the learned hour and stops learning until `learn again`. While Wazy is waiting for a time, it drops that question instead. |

@@ -1,5 +1,11 @@
 # HANDOFF: Wazy v2 rewrite (3 Nov 2026)
 
+> **Status at the end of the cloud session (3 Nov 2026, evening): the plan below is DONE.** `main` runs end to end.
+> 1,022 unit tests and 758 of 758 eval cases pass under Python 3.9. Before/after numbers are at the top of
+> `evals/REPORT.md`. Docs: `README.md`, `architecturedoc.md`, `CODE_TOUR.md`. SPEC section 3.6 records the
+> decisions made after two red-team agents attacked the app. The text below is the original plan, kept for history.
+
+
 Read this first, then `SPEC.md` (the contract). The previous session cannot be seen from here; this file is
 everything you need.
 
@@ -34,8 +40,7 @@ went wrong**. "Call mum at 25:00" was not even logged in `reader_misses`. v2 fix
   global `setting()`, and an automatic **v1 -> v2 migration** (backup copy first, rows given to "web:legacy",
   naive Madrid times converted to UTC). Tested by hand: migration across the 25 Oct DST change is correct.
 - Removed v1 `wazy/parser.py`, `wazy/store.py` and all v1 tests (read them with `git show cad4eb1:<path>`).
-- **`main` does not run right now**: `wazy/server.py` and `wazy/config.py` are still v1 and import the deleted
-  `store.py`. They are to be rewritten (see plan).
+- (At the start of the session `main` did not run because server.py and config.py were still v1. Fixed.)
 
 ## Decisions already made
 - **Python 3.9+, standard library only.** David's Mac runs Python 3.9.6. Install a 3.9 for testing with
