@@ -245,7 +245,8 @@
   Wazy presenter view (this computer only).
 
   Every 1.5 s it reads GET /api/admin/state and redraws:
-    - the live conversation of focus_user (the person who wrote or was nudged most recently),
+    - the live conversation of focus_user (the person who wrote or tapped Done / Later most recently, by
+      last_seen_at; a nudge Wazy sends does not move the live view),
     - the latest commitment as four steps, the stats, and the tables below.
   GET /api/link gives the public chat link for the QR box; POST /api/reset clears the demo after confirm().
 

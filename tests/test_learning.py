@@ -363,6 +363,19 @@ class ConsiderTest(LearningTest):
         self.assertIsNone(consider(self.db, ANA, madrid(2026, 11, 3, 9, 29)))           # 13 d 23 h 59 min
         self.assertIsNotNone(consider(self.db, ANA, madrid(2026, 11, 3, 9, 30)))        # 14 d exactly
 
+    def test_forget_and_learn_again_do_not_skip_the_14_days(self):
+        # NO, then "forget", then "learn again": the next Later tap must not bring the question back the
+        # next day. "forget" keeps learning_asked_at, so the 14 days still count from the NO.
+        self.dones(3, hour=19)
+        self.mornings(3)
+        self.assertIsNotNone(consider(self.db, ANA, NOW))
+        answer(self.db, ANA, False, NOW)
+        forget(self.db, ANA, NOW + timedelta(minutes=1))
+        resume(self.db, ANA, NOW + timedelta(minutes=2))
+        self.assertIsNone(consider(self.db, ANA, NOW + timedelta(days=1)))
+        self.assertIsNone(consider(self.db, ANA, NOW + ASK_AGAIN_AFTER - timedelta(seconds=1)))
+        self.assertIsNotNone(consider(self.db, ANA, NOW + ASK_AGAIN_AFTER))
+
     def test_now_in_any_zone(self):
         self.dones(3, hour=19)
         self.mornings(3)
@@ -475,7 +488,7 @@ class ForgetResumeTest(LearningTest):
         user = self.user()
         self.assertIsNone(user["learned_hour"])
         self.assertEqual(user["learning_off"], 1)
-        self.assertIsNone(user["learning_asked_at"])
+        self.assertEqual(user["learning_asked_at"], to_db(NOW))     # kept: the 14-day pause still counts
         self.assertEqual(usual_hour(user), 10)
 
     def test_forget_is_logged(self):
@@ -509,7 +522,7 @@ class ForgetResumeTest(LearningTest):
     def test_after_resume_it_may_ask_again_but_still_asks_first(self):
         forget(self.db, ANA, NOW)
         resume(self.db, ANA, NOW)
-        self.assertIsNotNone(consider(self.db, ANA, NOW))
+        self.assertIsNotNone(consider(self.db, ANA, NOW + ASK_AGAIN_AFTER))
         self.assertIsNone(self.user()["learned_hour"])
 
 
@@ -560,6 +573,16 @@ class ExplainTest(LearningTest):
     def test_spanish(self):
         self.db.update_user(ANA, lang="es")
         self.assertEqual(explain(self.db, ANA).lang, "es")
+
+    def test_a_broken_zone_falls_back_to_the_default_zone(self):
+        # Only a damaged database can hold a zone like this; Wazy answers in the server's zone, not a crash.
+        self.dones(3, hour=19)
+        self.mornings(4, done=1)
+        self.db.update_user(ANA, tz="Mars/Base")
+        reply = explain(self.db, ANA)
+        self.assertEqual(reply.kind, "learning_explained")
+        self.assertIn("19:00", reply.text)                     # hours read on the default (Madrid) clock
+        self.assertEqual(evidence(self.db, ANA)["answered_at_current"], 4)
 
 
 # =============================================================================================

@@ -727,6 +727,32 @@ class TestLearningReplies(unittest.TestCase):
         self.assertIn("ask before changing anything", render("learning_resumed", "en"))
         self.assertIn("antes de cambiar nada", render("learning_resumed", "es"))
 
+    def test_forget_promises_only_what_it_does(self):
+        # learning.forget() drops the learned hour and stops learning; nudge outcomes are kept (SPEC promise 3:
+        # nothing is deleted). No text may say "forget" wipes the record of answers.
+        for learned in (None, 18):
+            en = render("learning_explained", "en", off=False, learned_hour=learned, default_hour=10,
+                        done_at_current=1, answered_at_current=5, evidence=EVIDENCE)
+            es = render("learning_explained", "es", off=False, learned_hour=learned, default_hour=10,
+                        done_at_current=1, answered_at_current=5, evidence=EVIDENCE)
+            with self.subTest(learned=learned):
+                self.assertIn("Text “forget” and I'll drop any hour I learned and stop learning. "
+                              "Your commitments stay as they are.", en)
+                self.assertIn("Si escribes “olvida”, quito la hora que haya aprendido y dejo de aprender. "
+                              "Tus tareas siguen igual.", es)
+        en_forgotten = render("learning_forgotten", "en", default_hour=10)
+        es_forgotten = render("learning_forgotten", "es", default_hour=10)
+        self.assertTrue(en_forgotten.startswith("OK, I've dropped any hour I learned."))
+        self.assertIn("Your commitments stay as they are.", en_forgotten)
+        self.assertTrue(es_forgotten.startswith("Vale, ya no uso ninguna hora aprendida."))
+        self.assertIn("Tus tareas siguen igual.", es_forgotten)
+        for kind, lang, params in every_variant():
+            if kind in ("help", "learning_explained", "learning_forgotten"):
+                text = render(kind, lang, **params).lower()
+                with self.subTest(kind=kind, lang=lang):
+                    self.assertNotIn("wipe", text)
+                    self.assertNotIn("borr", text)
+
     def test_rate_limited(self):
         self.assertIn("a minute", render("rate_limited", "en"))
         self.assertIn("un minuto", render("rate_limited", "es"))

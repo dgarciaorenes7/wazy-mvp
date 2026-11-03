@@ -68,7 +68,7 @@ def evidence(db: Database, user_id: str) -> dict:
     {"answered": n, "done": n}}, over all answered nudges looked at).
     """
     user = _user(db, user_id)
-    zone = ZoneInfo(user["tz"])
+    zone = _zone(db, user)
     current = usual_hour(user)
     rows = _last_answered_nudges(db, user_id)
     by_hour: dict = {}
@@ -195,10 +195,12 @@ def forget(db: Database, user_id: str, now: datetime) -> Reply:
     """'Forget': wipe the learned hour, close any question, and stop learning until 'learn again'.
 
     Nudge outcomes are not deleted (nothing is deleted); they are simply not used while learning is off.
+    learning_asked_at is kept: the 14-day pause still counts, so "forget" then "learn again" cannot be
+    used to get the question again the next day ("at most once every 14 days", SPEC 7).
     """
     with db.transaction():
         user = _user(db, user_id)
-        db.update_user(user_id, learned_hour=None, learning_pending=None, learning_asked_at=None, learning_off=1)
+        db.update_user(user_id, learned_hour=None, learning_pending=None, learning_off=1)
         _log(db, user_id, "forgotten", user["learned_hour"], DEFAULT_HOUR, None, now)
         text = render("learning_forgotten", user["lang"], default_hour=DEFAULT_HOUR)
     return Reply(kind="learning_forgotten", text=text, lang=user["lang"])
@@ -223,6 +225,16 @@ def _user(db: Database, user_id: str) -> dict:
     if user is None:
         raise KeyError(f"no such user: {user_id}")
     return user
+
+
+def _zone(db: Database, user: dict) -> ZoneInfo:
+    """The person's time zone. A broken name (only possible in a damaged database) gives the server's zone,
+    as conversation.zone_or_default does (not imported from there: conversation.py imports this file).
+    """
+    try:
+        return ZoneInfo(user["tz"])
+    except (KeyError, ValueError):
+        return ZoneInfo(db.default_tz)
 
 
 def _local_hour(utc_text: str, zone: ZoneInfo) -> int:

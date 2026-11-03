@@ -148,9 +148,9 @@ class Conversation:
             if nudge is None:                                         # not open, or not this person's
                 return []
             self._update(user, last_seen_at=to_db(now))
-            label = "Done" if action == "done" else "Later"
-            self.db.add_message(user_id, "user", label, "text", user["lang"], nudge["commitment_id"], now)
-            return self._record_answer(user, nudge, action, user["lang"], now)
+            # The tap is stored as the person's "Done" / "Later" message by _record_answer, and only if
+            # it wins the nudge: if the 24 h no-reply close got there first, nothing is stored.
+            return self._record_answer(user, nudge, action, user["lang"], now, store_tap=True)
 
     # =========================================================================================
     # handle(), step by step
@@ -300,8 +300,12 @@ class Conversation:
             params += (commitment_id,)
         return self.db.one(sql + " ORDER BY o.id DESC LIMIT 1", params)
 
-    def _record_answer(self, user: dict, nudge: dict, action: str, lang: str, now: datetime) -> List[Reply]:
-        """SPEC 6.2: Done closes the commitment. Later schedules exactly one more nudge. Then learning may ask."""
+    def _record_answer(self, user: dict, nudge: dict, action: str, lang: str, now: datetime,
+                       store_tap: bool = False) -> List[Reply]:
+        """SPEC 6.2: Done closes the commitment. Later schedules exactly one more nudge. Then learning may ask.
+
+        store_tap (from tap()): also store the button as the person's "Done" / "Later" message.
+        """
         later_at = self.scheduler.later_time(user, now) if action == "later" else None
         waited = now - from_db(nudge["nudged_at"])
         seconds = max(0, int(waited.total_seconds()))               # how long the person took to answer
@@ -309,6 +313,10 @@ class Conversation:
             answered = self.db.execute(
                 "UPDATE nudge_outcomes SET outcome = ?, responded_at = ?, seconds_to_respond = ? "
                 "WHERE id = ? AND outcome = 'pending'", (action, to_db(now), seconds, nudge["id"])).rowcount
+            # Claim first, then store the tap: a tap that lost the nudge leaves no unanswered "Done" in the chat.
+            if answered and store_tap:
+                label = "Done" if action == "done" else "Later"
+                self.db.add_message(user["id"], "user", label, "text", lang, nudge["commitment_id"], now)
             if answered and action == "done":
                 self.db.execute("UPDATE commitments SET status = 'done' WHERE id = ?", (nudge["commitment_id"],))
             elif answered:

@@ -339,6 +339,13 @@ class DemoPage(unittest.TestCase):
     def test_polls_every_one_and_a_half_seconds(self):
         self.assertRegex(self.script, r"POLL_MS\s*=\s*1500\b")
 
+    def test_live_view_is_described_as_the_most_recently_active_person(self):
+        # admin_state()'s focus_user is the person with the newest last_seen_at (a message or a Done / Later
+        # tap); a nudge does not change it, so the page must not say the live view follows who was nudged.
+        self.assertNotIn("was nudged", self.text)
+        self.assertIn("most recently active person", self.text)
+        self.assertRegex(self.text, r"focus_user \(the person who wrote or tapped Done / Later most recently")
+
     def test_phone_numbers_are_partly_hidden(self):
         body = re.search(r"function shortWho\(id\) \{(.*?)\n\}", self.script, re.S).group(1)
         self.assertIn("'••••'", body)

@@ -4,14 +4,13 @@ as two processes would during a quick restart) and check the promises that must 
 
   * one nudge per claim: nudge messages per commitment == outcomes, == 1 + later_count once the last one went
     out; at most one pending outcome; the commitment's status always matches its last outcome,
-  * a Done tap and the 24 h no-reply close: exactly one wins; two Done taps: one done_ack; two Later taps:
-    later_count + 1 once,
+  * a Done tap and the 24 h no-reply close: exactly one wins, and a tap that loses stores no "Done";
+    two Done taps: one done_ack; two Later taps: later_count + 1 once,
   * after STOP returns, no new nudge (nor a learning question) for that person, also not over WhatsApp,
   * Database.transaction(): all or nothing, nested blocks join, one thread at a time, no dirty reads, and a
     failed COMMIT never leaves the connection stuck,
   * the WhatsApp outbox: one row per message, each row sent at most once.
 
-Tests marked expectedFailure document a problem in a file this suite does not own (see the comment on each).
 Run: python3.9 -m unittest tests.test_concurrency -v
 """
 from __future__ import annotations
@@ -522,28 +521,34 @@ class NudgeRaceTests(unittest.TestCase):
         self.assertEqual(len(stopped), 1)
         self.assertTrue(all(q < stopped[0] for q in asked), (asked, stopped))
 
-    @unittest.expectedFailure
     def test_a_tap_that_loses_to_the_24_hour_close_stores_nothing(self):
-        # PROBLEM in wazy/conversation.py (Conversation.tap): the person's "Done" message is stored BEFORE
-        # _record_answer() claims the pending outcome. When the scheduler closes the nudge as no_reply in
-        # between (the 24 h boundary), tap() returns [] (the server answers 409 not_open) but a "Done" from
-        # the person stays in the chat with no answer. Fix: store the tap message inside _record_answer's
-        # transaction, only when the outcome UPDATE changed a row.
+        # tap() sees the nudge still open, then the scheduler closes it as no_reply (the 24 h boundary) before
+        # tap() claims it. tap() returns [] (the server answers 409 not_open) and must not leave a "Done" from
+        # the person in the chat with no answer: the tap is stored only once the claim has succeeded.
         cid = self.nudge_now()
         self.clock.advance(hours=24)
-        real_add = self.db.add_message
+        conversation = self.app.conversation
+        real_open_nudge = conversation._open_nudge
 
-        def add_then_tick(user_id, role, text, *args, **kwargs):
-            message_id = real_add(user_id, role, text, *args, **kwargs)
-            if role == "user" and text == "Done":
-                self.app.tick()                                 # the scheduler thread gets in here
-            return message_id
+        def open_nudge_then_tick(*args, **kwargs):
+            nudge = real_open_nudge(*args, **kwargs)
+            self.app.tick()                                     # the scheduler thread gets in here
+            return nudge
 
-        with mock.patch.object(self.db, "add_message", side_effect=add_then_tick):
+        with mock.patch.object(conversation, "_open_nudge", side_effect=open_nudge_then_tick):
             self.assertEqual(self.app.tap(ANA, cid, "done"), [])
         self.assertEqual(self.outcome(cid), ["no_reply"])
         taps = self.db.scalar("SELECT COUNT(*) FROM messages WHERE role = 'user' AND text = 'Done'")
         self.assertEqual(taps, 0)
+
+    def test_a_tap_that_wins_stores_the_tap_before_the_answer(self):
+        cid = self.nudge_now()
+        replies = self.app.tap(ANA, cid, "done")
+        self.assertEqual([r.kind for r in replies], ["done_ack"])
+        last_two = self.db.query("SELECT role, text, kind FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT 2",
+                                 (ANA,))
+        self.assertEqual([(r["role"], r["kind"]) for r in reversed(last_two)], [("user", "text"), ("bot", "done_ack")])
+        self.assertEqual(last_two[1]["text"], "Done")
 
 
 # =============================================================================================

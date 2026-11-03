@@ -207,7 +207,7 @@ EN_HELP = (
     "• “stop”: stop all nudges\n"
     "• “start”: turn nudges back on\n"
     "• “what did you learn”: see what I've noticed about your timing\n"
-    "• “forget”: wipe what I learned and stop learning"
+    "• “forget”: drop the hour I learned and stop learning"
 )
 
 # What went wrong with a time, by detail_code. {what} is the person's words in quotes.
@@ -296,9 +296,10 @@ def en_learning_explained(off: bool, learned_hour: Optional[int], default_hour: 
     if evidence.get("best_hour") not in (None, in_use) and evidence.get("done_at_best"):
         best = (f" You answer Done most often around {hour_text(evidence['best_hour'])} "
                 f"({count(evidence['done_at_best'], 'time', 'times')}).")
+    # "forget" keeps this record (nothing is deleted, SPEC promise 3), so the text never says it wipes it.
     keep = ("\n\nWhat I keep: for each nudge, the hour it went out and whether you answered Done, Later or "
-            "nothing. I never change a time you gave me, and I always ask first. Text “forget” to wipe this "
-            "and stop learning.")
+            "nothing. I never change a time you gave me, and I always ask first. Text “forget” and I'll drop "
+            "any hour I learned and stop learning. Your commitments stay as they are.")
     return first + so_far + best + keep
 
 
@@ -361,7 +362,7 @@ ENGLISH = {
         f"OK, I'll keep {hour_text(hour)}. I won't ask again for at least two weeks.",
     "learning_explained": en_learning_explained,
     "learning_forgotten": lambda default_hour:
-        f"OK, I've wiped what I learned. When you don't give me a time, I'll nudge you at "
+        f"OK, I've dropped any hour I learned. When you don't give me a time, I'll nudge you at "
         f"{hour_text(default_hour)} again. I'll stop learning from your answers until you text “learn again”. "
         f"Your commitments stay as they are.",
     "learning_resumed": lambda:
@@ -409,7 +410,7 @@ ES_HELP = (
     "• “para”: dejar de recibir avisos\n"
     "• “empezar”: volver a recibir avisos\n"
     "• “qué has aprendido”: ver qué sé de tus horarios\n"
-    "• “olvida”: borrar lo que he aprendido y dejar de aprender"
+    "• “olvida”: quitar la hora que he aprendido y dejar de aprender"
 )
 
 # Qué ha fallado con la hora, según detail_code. {what} son las palabras de la persona entre comillas.
@@ -504,9 +505,10 @@ def es_learning_explained(off: bool, learned_hour: Optional[int], default_hour: 
     if evidence.get("best_hour") not in (None, in_use) and evidence.get("done_at_best"):
         best = (f" Sueles responder Hecho sobre {es_the(hour_text(evidence['best_hour']))} "
                 f"({count(evidence['done_at_best'], 'vez', 'veces')}).")
+    # "olvida" no borra este registro (nunca se borra nada, promesa 3 de SPEC): el texto no dice que lo borre.
     keep = ("\n\nLo que guardo: para cada aviso, la hora a la que salió y si respondiste Hecho, Más tarde o "
-            "nada. Nunca cambio una hora que me hayas dado y siempre te pregunto antes. Escribe “olvida” para "
-            "borrarlo y que deje de aprender.")
+            "nada. Nunca cambio una hora que me hayas dado y siempre te pregunto antes. Si escribes “olvida”, "
+            "quito la hora que haya aprendido y dejo de aprender. Tus tareas siguen igual.")
     return first + so_far + best + keep
 
 
@@ -569,7 +571,7 @@ SPANISH = {
         f"Vale, me quedo con {es_the(hour_text(hour))}. No te volveré a preguntar en al menos dos semanas.",
     "learning_explained": es_learning_explained,
     "learning_forgotten": lambda default_hour:
-        f"Vale, he borrado lo que había aprendido. Cuando no me des hora, te avisaré otra vez "
+        f"Vale, ya no uso ninguna hora aprendida. Cuando no me des hora, te avisaré otra vez "
         f"{es_at(hour_text(default_hour))}. Dejo de aprender de tus respuestas hasta que escribas “vuelve a "
         f"aprender”. Tus tareas siguen igual.",
     "learning_resumed": lambda:
