@@ -278,6 +278,13 @@ Under one day: exact (`now + delta`, seconds kept), stated. One day or more: tha
   gap, e.g. 02:30 on 28 Mar 2027 in Madrid) moves forward to the first valid minute (03:00). An ambiguous
   local time (autumn fall-back) uses the first occurrence (`fold=0`).
 - Final check: not before `now - 5 s`, not more than 366 days ahead (`too_far`).
+- A part of day with no clock time ("tonight", "this evening", "esta tarde", "por la noche", "this afternoon")
+  for today, said after its hour: if the part of day has not ended yet (morning ends 12:00, afternoon 20:00,
+  evening and night 23:00) use the "today" fallback (about an hour from now, rounded up to the next 5 minutes,
+  stated = False), as long as that is before the part ends; otherwise `past`. Eval writers: avoid this edge
+  except "this morning" said in the afternoon, which is `past`.
+- `ya` (Spanish "now") counts only as the last word of the message or alone; `ahora mismo` anywhere.
+- `mañana` means "tomorrow" unless it follows `por la`, `de la` or `esta` (then it is the morning).
 
 ### 3.5 Problems the reader reports (never guessed)
 - `vague`: only vague time words: `at some point`, `sometime`, `some time`, `soon`, `later` (inside a sentence),
@@ -314,7 +321,8 @@ Priority when several apply: `recurring` > `invalid` > `past` > `multiple` > `to
    Concretely: `""` if what is left has no letter at all (only digits, punctuation, emoji), or consists only of
    noise words: `hmm`, `hm`, `um`, `uh`, `ok`, `okay`, `k`, `lol`, `haha`, `jaja`, `thanks`, `thank you`, `thx`,
    `cool`, `nice`, `great`, `yes`, `no`, `yeah`, `nope`, `gracias`, `vale`, `bueno`, `pues`, `sí`, `si`, `vale`,
-   `genial`, `perfecto`, `test`, `testing`, `prueba`.
+   `genial`, `perfecto`, `test`, `testing`, `prueba`, `never mind`, `nevermind`, `forget it`, `skip`, `nothing`,
+   `da igual`, `déjalo`, `olvídalo`, `nada`.
 
 Examples: "Remind me to call mum yesterday at 25:00" -> "Call mum" (with the time problem reported separately).
 "I need to sort out the gym thing at some point" -> "Sort out the gym thing".
@@ -344,6 +352,22 @@ Examples: "Remind me to call mum yesterday at 25:00" -> "Call mum" (with the tim
 | `question` | starts with what/when/where/who/why/how/which/is/are/can/could/do/does/did/should/will (or ES qué/cuándo/dónde/quién/por qué/cómo/cuál/puedes/hay) or ends with "?", and is not a list/help/learn command |
 | `edit` | change/move/reschedule/push/postpone/update/rename/edit it/that/the time, cambia/mueve/aplaza/pospón |
 | `text` | anything else: read it as a commitment, or as the answer to Wazy's last question |
+
+Traps (all agreed, all `text`): commands match the WHOLE message only, so "stop smoking tomorrow", "cancel my
+dentist appointment tomorrow", "start the essay at 5", "help Ana move on Saturday" are commitments.
+`do`/`does`/`did`/`is`/`are`/`can`/`could`/`should`/`will` start a question only when the message ends with "?"
+or the next word is a pronoun (you, i, we, it, they, he, she, there, this, that): "do the laundry tomorrow" is
+`text`, "do you speak Spanish" is `question`. Spanish: a question starts with `¿`, ends with `?`, or starts with
+`qué`/`cuándo`/`dónde`/`quién`/`cómo`/`cuál`/`por qué`/`puedes` (accent-free forms count too, except `que` and
+`como` which need `?`); "hay que comprar pan mañana" is `text` (`hay` is a question only as `hay algo...?` with `?`).
+`act as` / `pretend` are injection only when aimed at Wazy: "act as (a|an|my) (ai|assistant|bot|system|admin|
+developer|different|new|unrestricted)...", "act as if", "pretend (you are|you're|to be) (a|an|my)? (ai|assistant|
+bot|human|different|...)", "pretend that you": "act as host for Ana's party" and "remind me to pretend to be
+sick on Monday" are `text`. `edit` needs an object that is the reminder itself: it, that, this, the time, the
+reminder, my reminder, the last one ("move the car tomorrow" is `text`; "move it to 5" is `edit`); Spanish
+`cámbialo`, `muévelo`, `aplázalo`, `pospónlo`, `cambia la hora`, `cambia el recordatorio`, `mueve el
+recordatorio`. `cancel` alone is always `cancel` (the conversation handles a pending wait); the other
+`cancel_pending` words only while `pending=True`.
 
 A question that clearly contains a commitment with a time ("can you remind me to call mum at 5?") is `text`:
 rule of thumb, "remind me"/"recuérdame" anywhere means `text` unless it is an injection.
