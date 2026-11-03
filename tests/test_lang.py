@@ -64,7 +64,10 @@ class TestDetectLanguage(unittest.TestCase):
         ("café with Ana at 5", "en", "en"),
         ("Remind me to comprar pan", "en", "en"),
         ("recuérdame call Ana mañana", "es", "es"),
-        ("Remind me mañana", "en", "es"),
+        ("Remind me mañana", "es", "es"),           # "me" is no clue (SPEC 3.6), so "mañana" wins
+        # SPEC 3.6: "me" counts for neither language
+        ("me voy a dormir", "es", "es"),
+        ("me", "en", "es"),
         ("llamar a Ana tomorrow", "en", "es"),
     ]
 

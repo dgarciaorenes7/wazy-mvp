@@ -16,9 +16,10 @@ first step that applies:
      5. help / hello                      -> help / welcome
      6. YES or NO to a learning question  -> learning answer
      7. what did you learn / forget / learn again -> learning
-     8. done / later                      -> answers the latest open nudge
+     8. done / later                      -> answers the latest open nudge ("later" with no nudge open while
+                                             Wazy waits for a time is a vague answer to that wait)
      9. list                              -> the next 10 commitments, numbered
-    10. cancel (2)                        -> cancels one commitment (or the question Wazy is waiting on)
+    10. cancel (2) (1 and 3)              -> cancels those commitments (or the question Wazy is waiting on)
     11. never mind (while Wazy waits)     -> drops the wait
     12. an instruction aimed at Wazy      -> "I only take commitments"
     13. a question or an edit             -> "I can't do that yet"
@@ -187,12 +188,14 @@ class Conversation:
             return self._learning_answer(user, name == "yes", now)
         if name in ("learn_what", "learn_forget", "learn_resume"):    # 7
             return self._learning_command(user, name, now)
+        if name == "later" and self._later_answers_the_wait(user, text, now):   # 8, SPEC 3.6
+            return self._read_commitment(user, text, lang, now)
         if name in ("done", "later"):                                 # 8
             return self._answer_open_nudge(user, name, lang, now)
         if name == "list":                                            # 9
             return self._list(user, lang, now)
         if name == "cancel":                                          # 10
-            return self._cancel(user, intent.number, lang, now)
+            return self._cancel(user, intent.numbers, lang, now)
         if name == "cancel_pending" and self._waiting(user):          # 11
             return self._cancel_wait(user, lang, now)
         if name == "injection":                                       # 12
@@ -283,6 +286,13 @@ class Conversation:
         return [self._store(user["id"], reply, now)]
 
     # ----- step 8 and tap(): answering a nudge (SPEC 6.2) -----
+    def _later_answers_the_wait(self, user: dict, text: str, now: datetime) -> bool:
+        """SPEC 3.6: "luego" / "later" / "más tarde" while Wazy waits for a time and no nudge is open answers
+        that wait. It is vague, so Wazy asks when again (instead of "no nudge is waiting")."""
+        if not self._waiting(user) or self._open_nudge(user["id"]) is not None:
+            return False
+        return parse_time(text, now, self._zone(user), DEFAULT_HOUR).status == "vague"
+
     def _answer_open_nudge(self, user: dict, action: str, lang: str, now: datetime) -> List[Reply]:
         """SPEC 6 step 8: a typed "done" or "later" answers this person's most recent open nudge."""
         nudge = self._open_nudge(user["id"])
@@ -365,10 +375,11 @@ class Conversation:
         return self._say(user, kind, lang, now, items=items)
 
     # ----- steps 10 and 11: cancel -----
-    def _cancel(self, user: dict, number: Optional[int], lang: str, now: datetime) -> List[Reply]:
-        """SPEC 6 step 10: "cancel 2" cancels item 2; a bare "cancel" drops a wait, else cancels the only one."""
-        if number is not None:
-            return self._cancel_number(user, number, lang, now)
+    def _cancel(self, user: dict, numbers: List[int], lang: str, now: datetime) -> List[Reply]:
+        """SPEC 6 step 10: "cancel 2" cancels item 2 ("cancel 1 and 3" items 1 and 3, SPEC 3.6); a bare
+        "cancel" drops a wait, else cancels the only one."""
+        if numbers:
+            return self._cancel_numbers(user, numbers, lang, now)
         if self._waiting(user):                                       # "cancel" drops the question first
             return self._cancel_wait(user, lang, now)
         rows = self._upcoming(user["id"])
@@ -376,16 +387,20 @@ class Conversation:
             return self._cancel_commitment(user, rows[0]["id"], lang, now)
         return self._which_one(user, rows, lang, now)
 
-    def _cancel_number(self, user: dict, number: int, lang: str, now: datetime) -> List[Reply]:
-        """Cancel item N of the list the person last saw (or of the current list if they never saw one)."""
+    def _cancel_numbers(self, user: dict, numbers: List[int], lang: str, now: datetime) -> List[Reply]:
+        """Cancel items N (and M ...) of the list the person last saw (or of the current list if they never
+        saw one), with one "cancelled" reply each. If any number is not on that list, nothing is cancelled
+        and Wazy shows the list to choose from (SPEC 3.6)."""
         if user["last_list"]:
             ids = json.loads(user["last_list"])
         else:
             ids = [row["id"] for row in self._upcoming(user["id"])]
-        if 1 <= number <= len(ids):
-            replies = self._cancel_commitment(user, ids[number - 1], lang, now)
-            if replies:
-                return replies
+        replies: List[Reply] = []
+        if all(1 <= number <= len(ids) for number in numbers):
+            for number in numbers:
+                replies += self._cancel_commitment(user, ids[number - 1], lang, now)
+        if replies:
+            return replies
         return self._which_one(user, self._upcoming(user["id"]), lang, now)
 
     def _which_one(self, user: dict, rows: List[dict], lang: str, now: datetime) -> List[Reply]:

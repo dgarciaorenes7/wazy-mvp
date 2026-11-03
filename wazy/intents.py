@@ -13,10 +13,12 @@ The word helpers come from lang.py. The checks run in this order:
    "yes"/"no" are commands only while Wazy is waiting for an answer to its learning question, and
    "never mind"/"skip"/"olvídalo" only while Wazy is waiting for a missing time or task.
 3. "injection": instructions aimed at Wazy itself ("ignore your rules ...", "act as an AI ...").
-4. "text" when the message says "remind me" / "recuérdame" anywhere: it is a commitment,
-   even when it is phrased as a question ("can you remind me to call mum at 5?").
-5. "edit": asking to change a reminder ("move it to 5", "cámbialo").
-6. "question": "do you speak Spanish", "¿cuándo me avisas?", anything ending with "?".
+   But "remind me to ignore the teacher's instructions" is a task (SPEC 3.6).
+4. "text" when the message says "remind me" / "recuérdame" / "a reminder to" / "avísame" anywhere:
+   it is a commitment, even when it is phrased as a question ("can you remind me to call mum at 5?").
+5. "edit": asking to change a reminder ("move it to 5", "cámbialo", "make it 6pm").
+6. "question": "do you speak Spanish", "¿cuándo me avisas?", anything ending with "?", except a
+   commitment with a tag question at the end ("Call mum at 9, ok?", SPEC 3.6).
 7. "text": everything else. The conversation reads it as a commitment, or as the answer to the
    question Wazy just asked.
 
@@ -74,12 +76,29 @@ def ends_like_question(message: str) -> bool:
     return without_tail.endswith("?") or without_head.startswith("¿")
 
 
+# SPEC 3.6: a tag question after a commitment ("Call mum at 9, ok?") is the person telling, not asking.
+TAG_QUESTIONS = phrases("ok", "okay", "vale", "right", "please", "pls", "porfa", "alright")
+
+
+def ends_with_tag_question(message: str, words: List[str]) -> bool:
+    """ "call mum tomorrow at 9, ok?", "llamar a Ana mañana, ¿vale?" -> True; "ok?" alone -> False."""
+    return len(words) > 1 and words[-1] in TAG_QUESTIONS and ends_like_question(message)
+
+
+def is_asking(message: str, words: List[str]) -> bool:
+    """Shaped like a question: "?" at the end or "¿" at the start, but not a tag question (SPEC 3.6)."""
+    return ends_like_question(message) and not ends_with_tag_question(message, words)
+
+
 # ---- whole-message commands ----------------------------------------------------------------------
 
 STOP_PHRASES = phrases(
     "stop", "unsubscribe", "stop nudges", "stop all", "stopall", "stop all nudges", "stop reminders",
     "stop all reminders", "stop it", "stop messages", "stop messaging me", "stop texting me",
     "para", "parar", "basta", "basta ya", "para ya", "detente", "deja de escribirme",
+    # SPEC 3.6
+    "unsubscribe me", "deja de avisarme", "no me avises más",
+    "stop sending me messages", "stop sending messages", "stop sending me reminders", "deja de mandarme mensajes",
 )
 START_PHRASES = phrases(
     "start", "resume", "unstop", "start again", "start nudges", "resume nudges", "start reminders",
@@ -123,8 +142,9 @@ LIST_PHRASES = phrases(
     "list", "my list", "what's on", "what's coming up", "what do i have", "reminders", "my reminders",
     "show my reminders", "show me my reminders", "show reminders", "show my list", "show list",
     "list my reminders", "what are my reminders", "what's next", "what's on my list", "upcoming",
+    "show me my list", "show me the list",                                     # SPEC 3.6
     "lista", "mi lista", "qué tengo", "mis recordatorios", "recordatorios", "ver lista",
-    "qué tengo pendiente",
+    "qué tengo pendiente", "enséñame mi lista", "enséñame la lista",
 )
 # Checked in this order. The lists never share a phrase (a test makes sure).
 COMMAND_TABLES = (
@@ -216,6 +236,10 @@ CANCEL_OBJECTS = phrases(
     "it", "that", "this", "this one", "that one", "reminder", "the reminder", "my reminder",
     "the last one", "the last reminder", "my last reminder",
     "eso", "esto", "recordatorio", "el recordatorio", "mi recordatorio",
+    # SPEC 3.6: "cancel all" is a cancel with no number (the conversation asks which one: the only
+    # bulk action is STOP, SPEC promise 3)
+    "all", "everything", "all of them", "them all", "all reminders", "all my reminders",
+    "todo", "todos", "todas", "todos los recordatorios",
 )
 # Words that may sit around the number: "cancel number 2", "borra la 2", "cancel the 2nd one".
 NUMBER_FILLERS = phrases("the", "number", "no", "nr", "num", "item", "reminder", "one",
@@ -255,8 +279,27 @@ def read_cancel_number(after_verb: List[str]) -> Optional[int]:
     return number_value(left[0])
 
 
+# SPEC 3.6: the words that join several numbers ("cancel 1 and 2", "cancela 1 y 3").
+NUMBER_JOINERS = phrases("and", "y")
+
+
+def read_cancel_numbers(after_verb: List[str]) -> List[int]:
+    """SPEC 3.6: "1 and 2", "la 1 y la 3", "1, 2 and 3" -> [1, 2, 3]; [] if it is not such a list.
+
+    "and"/"y" must join them, so "cancel 2 3" (perhaps a typo for 23) is not read as two numbers.
+    """
+    if not any(word in NUMBER_JOINERS for word in after_verb):
+        return []
+    left = [word for word in after_verb if word not in NUMBER_FILLERS and word not in NUMBER_JOINERS]
+    numbers = [number_value(word) for word in left]
+    if len(numbers) < 2 or None in numbers:
+        return []
+    return list(dict.fromkeys(numbers))            # each number once, in the order typed
+
+
 def match_cancel(words: List[str]) -> Optional[Intent]:
-    """ "cancel", "cancel it", "cancélalo" -> cancel; "cancel 2", "borra la 2" -> cancel with number 2."""
+    """ "cancel", "cancel it", "cancel all", "cancélalo" -> cancel; "cancel 2", "borra la 2" -> cancel with
+    number 2; "cancel 1 and 2" -> cancel with numbers [1, 2]. `numbers` always lists every number."""
     if len(words) == 1 and (words[0] in CANCEL_VERBS or words[0] in CANCEL_IT_WORDS):
         return Intent("cancel")
     if not words or words[0] not in CANCEL_VERBS:
@@ -264,15 +307,18 @@ def match_cancel(words: List[str]) -> Optional[Intent]:
     after_verb = words[1:]
     if " ".join(after_verb) in CANCEL_OBJECTS:
         return Intent("cancel")
+    numbers = read_cancel_numbers(after_verb)
+    if numbers:
+        return Intent("cancel", numbers[0], numbers)
     number = read_cancel_number(after_verb)
     if number is not None:
-        return Intent("cancel", number)
+        return Intent("cancel", number, [number])
     return None
 
 
 def match_command(message: str, words: List[str], pending: bool, learning_question: bool) -> Optional[Intent]:
     """The command that IS the whole message, or None."""
-    asking = ends_like_question(message)
+    asking = is_asking(message, words)
     if learning_question and not asking:
         answer = match_yes_no(words)
         if answer:
@@ -357,6 +403,14 @@ INSTRUCTION_WORDS = phrases(
 )
 
 
+# Words that name Wazy's own rules: "ignore YOUR rules", "ignora TUS instrucciones", "the SYSTEM prompt",
+# "all PREVIOUS instructions" (what came before the person's message), "ignore the ABOVE".
+WAZYS_RULES = phrases("your", "tus", "tu", "system", "sistema", "previous", "prior", "earlier", "above",
+                      "anteriores", "previas", "anterior")
+# Words that say the rules belong to someone else: "las instrucciones DEL profe", "the rules OF the game".
+SOMEONE_ELSES = phrases("de", "del", "from", "of", "on", "for", "at")
+
+
 def tells_to_ignore_rules(words: List[str]) -> bool:
     """ "ignore all previous instructions", "olvida tus instrucciones", "ignore the above"."""
     for position, word in enumerate(words):
@@ -366,8 +420,21 @@ def tells_to_ignore_rules(words: List[str]) -> bool:
         while after < len(words) and words[after] in IGNORE_IN_BETWEEN:
             after += 1
         if after < len(words) and words[after] in IGNORE_TARGETS:
+            if ignoring_is_the_task(words[:position], words[position + 1:after + 1], words[after + 1:]):
+                continue
             return True
     return False
+
+
+def ignoring_is_the_task(before: List[str], named: List[str], following: List[str]) -> bool:
+    """SPEC 3.6: after "remind me to" / "recuérdame", "ignore ..." is the person's own task when the rules
+    are someone else's ("recuérdame ignorar las instrucciones del profe"). It stays an injection when it
+    names Wazy's rules ("remind me to ignore your rules") or says nothing about whose they are
+    ("recuérdame ignorar las reglas mañana": safer to refuse)."""
+    asks_for_a_reminder = contains_phrase(before, REMIND_ME)
+    names_wazys_rules = any(word in WAZYS_RULES for word in named)
+    someone_elses = bool(following) and following[0] in SOMEONE_ELSES
+    return asks_for_a_reminder and not names_wazys_rules and someone_elses
 
 
 def names_a_role(words: List[str]) -> bool:
@@ -430,7 +497,10 @@ def is_injection(message: str, words: List[str]) -> bool:
 
 # ---- "remind me" ---------------------------------------------------------------------------------
 
-REMIND_ME = phrases("remind me", "recuérdame", "recuérdamelo", "recordarme", "me recuerdas")
+# Anywhere in a message, these ask Wazy for a reminder, so the message is a commitment, even when it is
+# shaped like a question ("Can I get a reminder to call mum at 5?", SPEC 5 and 3.6).
+REMIND_ME = phrases("remind me", "recuérdame", "recuérdamelo", "recordarme", "me recuerdas",
+                    "a reminder to", "nudge me to", "avísame", "avisarme")
 
 
 # ---- edit: asking to change an existing reminder -------------------------------------------------
@@ -463,11 +533,48 @@ def refers_to_reminder(after_verb: List[str]) -> bool:
     return False
 
 
+# SPEC 3.6: "make it 6pm", "make that Friday", "hazlo a las 6" change the time of the last reminder.
+MAKE_IT = phrases("make it", "make that", "make this", "hazlo", "hazla")
+# Small words that may come first: "Actually, make that Friday", "mejor hazlo a las 7".
+EDIT_LEAD_WORDS = phrases("actually", "no", "oh", "wait", "sorry", "instead", "mejor", "perdona", "perdón",
+                          "espera")
+# Words a time starts with, so "make it 6pm" is an edit but "make it to the gym by 6" is a commitment.
+TIME_START_WORDS = phrases(
+    "at", "on", "in", "tomorrow", "tmrw", "tmr", "today", "tonight", "next", "this", "noon", "midday",
+    "midnight", "later", "earlier", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+    "sunday", "mon", "tue", "wed", "thu", "fri", "sat", "sun",
+    "las", "mañana", "hoy", "el", "para", "en", "pasado", "esta", "este", "por", "dentro", "luego", "más",
+    "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo", "mediodía", "medianoche",
+)
+
+
+def starts_a_time(words: List[str]) -> bool:
+    """ "6pm", "18:00", "friday", "at 6", "a las 6", "mañana" -> True; "to the gym", "a habit" -> False."""
+    if not words:
+        return False
+    return words[0][0].isdigit() or words[0] in TIME_START_WORDS or words[:2] in (["a", "las"], ["a", "la"])
+
+
+def is_make_it_edit(words: List[str]) -> bool:
+    """SPEC 3.6: the message starts with "make it" / "hazlo" and then a time ("Actually, make that Friday")."""
+    rest = without_fillers(words, at_end_too=False)
+    while rest and rest[0] in EDIT_LEAD_WORDS:
+        rest = rest[1:]
+    for phrase in MAKE_IT:
+        size = len(phrase.split())
+        if rest[:size] == phrase.split() and starts_a_time(rest[size:]):
+            return True
+    return False
+
+
 def is_edit(words: List[str]) -> bool:
-    """ "move it to 5", "change the time", "can you reschedule my reminder", "cámbialo", "reschedule"."""
+    """ "move it to 5", "change the time", "can you reschedule my reminder", "cámbialo", "reschedule",
+    "make it 6pm"."""
     if any(word in EDIT_IT_WORDS for word in words):
         return True
     if len(words) == 1 and words[0] in EDIT_VERBS:
+        return True
+    if is_make_it_edit(words):
         return True
     return any(word in EDIT_VERBS and refers_to_reminder(words[position + 1:])
                for position, word in enumerate(words))
@@ -491,8 +598,9 @@ ES_QUESTION_WORDS = {"qué", "cuándo", "cuando", "dónde", "donde", "quién", "
 
 
 def is_question(message: str, words: List[str]) -> bool:
-    """Ends with "?" or starts with "¿", or starts with a question word ("what", "do you", "cuándo")."""
-    if ends_like_question(message):
+    """Ends with "?" or starts with "¿", or starts with a question word ("what", "do you", "cuándo").
+    A tag question at the end ("Call mum at 9, ok?") counts only if the rest is a question (SPEC 3.6)."""
+    if is_asking(message, words):
         return True
     rest = without_fillers(words, at_end_too=False)      # skip "hey", "please", "hola", "oye" ...
     if not rest:

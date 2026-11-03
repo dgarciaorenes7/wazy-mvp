@@ -57,12 +57,13 @@ SPANISH_WORDS = _plain({
     "febrero", "marzo", "abril", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre",
     "diciembre", "escribir", "hacer", "pagar", "recoger", "terminar", "estudiar", "entregar", "reservar",
     "preparar", "revisar", "sacar", "llevar", "cita", "reunión", "cuándo", "dónde", "cómo", "qué",
-    "quién", "cuál", "avísame",
+    "quién", "cuál", "avísame", "voy",
 })
 
 ENGLISH_WORDS = _plain({
-    # the list in SPEC section 5
-    "the", "to", "at", "remind", "me", "my", "tomorrow", "today", "call", "send", "buy", "and", "with",
+    # the list in SPEC section 5, without "me": SPEC 3.6 says "me" counts for neither language, because it is
+    # common in both ("me voy a dormir" is Spanish)
+    "the", "to", "at", "remind", "my", "tomorrow", "today", "call", "send", "buy", "and", "with",
     "by", "on", "in",
     # other everyday English words that never appear in Spanish sentences
     "i", "you", "it", "is", "for", "of", "this", "that", "please", "what", "have", "need", "about",

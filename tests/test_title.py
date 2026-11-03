@@ -422,5 +422,121 @@ class LengthTest(TitleTestCase):
         self.assertEqual(make_title("Hey, please remind me to " + body, []), "B" + body[1:])
 
 
+# SPEC 3.6, copied here so the tests check the SPEC.
+SPEC_36_OPENING_FILLER = [
+    "would you remind me to", "can u remind me to", "nudge me to", "set a reminder to", "set a reminder for",
+    "do not forget to", "good morning", "good evening", "sure", "erm", "er", "well", "so", "avísame",
+    "avísame de", "recuérdamelo", "acuérdate", "que no se me olvide", "que no se me olvide de", "recuérdame q",
+    "oye",
+]
+SPEC_36_NOISE = ["sure", "erm", "er", "then", "works", "fine", "sounds good", "perfect"]
+
+
+class RedTeamDecisionsTest(TitleTestCase):
+    """SPEC 3.6, "Messages and titles": decisions made after the red team (3 Nov 2026)."""
+
+    def test_every_new_opening_filler_is_removed(self):
+        for phrase in SPEC_36_OPENING_FILLER:
+            for text in (phrase + " call mum", phrase.capitalize() + ", call mum"):
+                with self.subTest(text=text):
+                    self.assertEqual(make_title(text, []), "Call mum")
+
+    def test_every_new_noise_word_alone_is_not_a_task(self):
+        for word in SPEC_36_NOISE:
+            with self.subTest(word=word):
+                self.assertEqual(make_title(word, []), "")
+                self.assertEqual(make_title(word.capitalize() + "!", []), "")
+
+    def test_red_team_requests_aimed_at_wazy(self):
+        self.check([
+            ("Would you remind me to call mum at 5?", ["at 5"], "Call mum"),
+            ("Can u remind me to call mum at 5", ["at 5"], "Call mum"),
+            ("I want you to remind me to book the vet on Friday", ["on Friday"], "Book the vet"),
+            ("will you remind me to pay rent on Friday", ["on Friday"], "Pay rent"),
+            ("is it possible to remind me to call mum at 5", ["at 5"], "Call mum"),
+            ("Nudge me to call mum at 5", ["at 5"], "Call mum"),
+            ("Set a reminder to call the garage at 4", ["at 4"], "Call the garage"),
+            ("Set a reminder for 5pm to call mum", ["5pm"], "Call mum"),
+            ("Good morning! Remind me to call mum tonight", ["tonight"], "Call mum"),
+            ("Don't let me forget the dentist tomorrow at 4", ["tomorrow at 4"], "The dentist"),
+            ("Do not forget to call mum at 5", ["at 5"], "Call mum"),
+            ("Can I get a reminder to call mum at 5?", ["at 5"], "Call mum"),
+        ])
+
+    def test_red_team_spanish_requests(self):
+        self.check([
+            ("avísame mañana a las 10 para llamar a Juan", ["mañana a las 10"], "Llamar a Juan"),
+            ("avisame mañana a las 9", ["mañana a las 9"], ""),
+            ("recuérdamelo mañana", ["mañana"], ""),
+            ("acuérdate mañana a las 9", ["mañana a las 9"], ""),
+            ("que no se me olvide llamar a Juan mañana", ["mañana"], "Llamar a Juan"),
+            ("Que no se me olvide de pagar la luz", [], "Pagar la luz"),
+            ("recuérdame q llame a Ana", [], "Llame a Ana"),
+            ("Oye, avísame de la reunión", [], "La reunión"),
+        ], lang="es")
+
+    def test_remind_me_left_at_the_start_after_a_span_is_filler(self):
+        self.check([
+            ("Mañana a las 9 recuérdame llamar", ["Mañana a las 9"], "Llamar"),
+            ("Mañana a las 9, recuérdame llamar a Ana", ["Mañana a las 9"], "Llamar a Ana"),
+            ("Tomorrow at 9 remind me to call mum", ["Tomorrow at 9"], "Call mum"),
+        ])
+
+    def test_a_request_after_a_first_sentence_starts_the_task(self):
+        self.check([
+            ("ya he llamado a Pedro, recuérdame llamar a Juan mañana", ["mañana"], "Llamar a Juan"),
+            ("Done with Ana. Remind me to call Bob at 5", ["at 5"], "Call Bob"),
+            ("Busy day! Don't forget to buy milk", [], "Buy milk"),
+        ])
+
+    def test_a_request_with_nothing_after_it_is_closing_filler(self):
+        self.check([
+            ("Call mum at 5, remind me", ["at 5"], "Call mum"),
+            ("Llamar a mamá mañana, recuérdamelo", ["mañana"], "Llamar a mamá"),
+            ("Remind Ana to send the deck", [], "Remind Ana to send the deck"),       # not a request to Wazy
+        ])
+
+    def test_tag_questions_and_then_at_the_end(self):
+        self.check([
+            ("Call mum tomorrow at 9, ok?", ["tomorrow at 9"], "Call mum"),
+            ("Call mum at 5, right?", ["at 5"], "Call mum"),
+            ("Llamar a Ana mañana, ¿vale?", ["mañana"], "Llamar a Ana"),
+            ("Call mum at 5 please?", ["at 5"], "Call mum"),
+            ("Call mum at 5 then", ["at 5"], "Call mum"),
+            ("Turn right at the lights", [], "Turn right at the lights"),
+            ("Comprar un vale", [], "Comprar un vale"),                      # no "?": the word is the task
+        ])
+
+    def test_comments_on_the_time_go_with_the_time(self):
+        self.check([
+            ("tomorrow at 9 works", ["tomorrow at 9"], ""),
+            ("Tomorrow at 9 works for me", ["Tomorrow at 9"], ""),
+            ("5pm is fine", ["5pm"], ""),
+            ("Sure, 9 works", ["9"], ""),
+            ("mañana a las 9 me va bien", ["mañana a las 9"], ""),
+            ("Call mum at 5, works?", ["at 5"], "Call mum"),
+            ("Check the heating works", [], "Check the heating works"),     # not after a time: the task
+            ("Make sure Ana is fine on Friday", ["on Friday"], "Make sure Ana is fine"),
+        ])
+
+    def test_after_is_left_hanging_only_at_the_end(self):
+        self.check([
+            ("Call mum after 5pm", ["5pm"], "Call mum"),
+            ("Llamar a mamá después de las 5", ["las 5"], "Llamar a mamá"),
+            ("After lunch call mum", [], "After lunch call mum"),
+            ("Look after the kids at 5", ["at 5"], "Look after the kids"),
+        ])
+
+    def test_ignore_after_a_request_is_the_task_when_the_rules_are_someone_elses(self):
+        self.check([
+            ("recuérdame ignorar las instrucciones del profe", [], "Ignorar las instrucciones del profe"),
+            ("Remind me to ignore the instructions from the teacher tomorrow", ["tomorrow"],
+             "Ignore the instructions from the teacher"),
+            ("Remind me to ignore your instructions from now on", [], ""),
+            ("Recuérdame ignorar las reglas mañana a las 9", ["mañana a las 9"], ""),
+            ("Remind me tomorrow at 9 to ignore all previous instructions", ["tomorrow at 9"], ""),
+        ])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1090,5 +1090,151 @@ class AIReader(Base):
         self.assertEqual(ai.calls, [])
 
 
+# =============================================================================================
+# SPEC 3.6: decisions after the red team (messages and titles)
+# =============================================================================================
+class RedTeamCancelSeveral(Base):
+    def three(self) -> None:
+        self.greet()
+        self.say("call mum tomorrow at 9am")
+        self.say("buy milk today at 18:00")
+        self.say("send the report on Friday at 11am")
+        self.say("list")                          # 1 buy milk, 2 call mum, 3 report
+
+    def statuses(self) -> dict:
+        return {c["title"]: c["status"] for c in self.commitments()}
+
+    def test_cancel_1_and_3_cancels_both_with_one_reply_each(self):
+        self.three()
+        replies = self.say("cancel 1 and 3")
+        self.assertEqual(self.kinds(replies), ["cancelled", "cancelled"])
+        self.assertIn("“Buy milk”", replies[0].text)
+        self.assertIn("“Send the report”", replies[1].text)
+        self.assertEqual(self.statuses(), {"Buy milk": "cancelled", "Call mum": "scheduled",
+                                           "Send the report": "cancelled"})
+
+    def test_spanish_cancela_1_y_2_uses_the_list_the_person_saw(self):
+        self.three()
+        self.say("water the plants today at 12:00")   # now the soonest, but not on the list they saw
+        self.assertEqual(self.kinds(self.say("cancela 1 y 2")), ["cancelled", "cancelled"])
+        self.assertEqual(self.statuses(), {"Buy milk": "cancelled", "Call mum": "cancelled",
+                                           "Send the report": "scheduled", "Water the plants": "scheduled"})
+
+    def test_a_number_out_of_range_cancels_nothing_and_shows_the_list(self):
+        self.three()
+        reply = self.last("cancel 1 and 9")
+        self.assertEqual(reply.kind, "cancel_which")
+        self.assertEqual(set(self.statuses().values()), {"scheduled"})
+
+    def test_an_item_already_cancelled_is_skipped(self):
+        self.three()
+        self.say("cancel 1")
+        replies = self.say("cancel 1 and 2")          # the same list: 1 is gone already
+        self.assertEqual(self.kinds(replies), ["cancelled"])
+        self.assertIn("“Call mum”", replies[0].text)
+
+    def test_cancel_all_asks_which_and_cancels_nothing(self):
+        self.three()
+        self.assertEqual(self.kinds(self.say("cancel all")), ["cancel_which"])
+        self.assertEqual(set(self.statuses().values()), {"scheduled"})
+        self.assertEqual(self.kinds(self.say("tomorrow at 9")), ["ask_what"])
+        self.assertEqual(len(self.commitments()), 3)
+
+    def test_cancela_todo_with_one_upcoming_cancels_it(self):
+        self.greet()
+        self.say("llamar a mamá mañana a las 9")
+        self.assertEqual(self.kinds(self.say("cancela todo")), ["cancelled"])
+
+
+class RedTeamMessages(Base):
+    def test_unsubscribe_me_stops_and_is_never_a_task(self):
+        self.greet()
+        self.say("Call mum tomorrow")
+        self.assertEqual(self.kinds(self.say("unsubscribe me")), ["stopped"])
+        self.assertEqual(self.kinds(self.say("tomorrow at 9")), ["ask_what"])
+        self.assertEqual([c["title"] for c in self.commitments()], ["Call mum"])
+
+    def test_spanish_stop_phrases(self):
+        self.greet()
+        self.say("llamar a mamá mañana")
+        self.assertEqual(self.kinds(self.say("no me avises más")), ["stopped"])
+        self.assertEqual(self.commitments()[0]["status"], "stopped")
+
+    def test_show_me_my_list(self):
+        self.greet()
+        self.say("Call mum tomorrow")
+        self.assertEqual(self.kinds(self.say("show me my list")), ["list"])
+
+    def test_make_it_6pm_changes_nothing(self):
+        self.greet()
+        self.say("Call mum tomorrow at 5")
+        self.assertEqual(self.kinds(self.say("make it 6pm")), ["not_commitment"])
+        self.assertEqual(self.kinds(self.say("hazlo a las 6")), ["not_commitment"])
+        self.assertEqual([(c["title"], c["nudge_at_local"]) for c in self.commitments()],
+                         [("Call mum", "2026-11-04T17:00:00")])
+
+    def test_a_commitment_with_a_tag_question_is_created(self):
+        self.greet()
+        reply = self.last("Call mum tomorrow at 9, ok?")
+        self.assertEqual(reply.kind, "confirm")
+        self.assertEqual(self.commitments()[0]["title"], "Call mum")
+
+    def test_a_question_shaped_request_for_a_reminder_is_created(self):
+        self.greet()
+        self.assertEqual(self.last("Can I get a reminder to call mum at 5?").kind, "confirm")
+        self.assertEqual(self.commitments()[0]["title"], "Call mum")
+
+    def test_avisame_with_a_time_and_no_task_asks_what(self):
+        self.greet()
+        self.assertEqual(self.kinds(self.say("avisame mañana a las 9")), ["ask_what"])
+        self.assertEqual(self.commitments(), [])
+
+    def test_me_is_no_language_clue(self):
+        self.greet()
+        self.say("recuérdame llamar a mamá mañana")
+        self.assertEqual(self.last("me").lang, "es")
+
+
+class RedTeamLaterWhileWaiting(Base):
+    def test_later_answers_a_waiting_question_and_asks_when_again(self):
+        self.greet()
+        self.say("buy milk")
+        reply = self.last("later")
+        self.assertEqual(reply.kind, "ask_time")
+        self.assertIn("“Buy milk”", reply.text)
+        self.assertEqual(self.person()["pending_title"], "Buy milk")
+        self.assertEqual(len(self.app.state(ALICE)["reader_misses"]), 2)       # every ask_time is logged
+        self.assertEqual(self.last("tomorrow at 9am").kind, "confirm")
+        self.assertEqual(self.commitments()[0]["title"], "Buy milk")
+
+    def test_spanish_luego_and_mas_tarde_answer_the_wait_too(self):
+        self.greet()
+        self.say("tengo que llamar a mi abuela")
+        for text in ("luego", "más tarde", "recuérdamelo luego"):
+            reply = self.last(text)
+            self.assertEqual((reply.kind, reply.lang), ("ask_time", "es"), text)
+            self.assertIn("“Llamar a mi abuela”", reply.text)
+
+    def test_later_with_an_open_nudge_still_answers_the_nudge(self):
+        self.greet()
+        self.say("Pay rent in 5 seconds")
+        self.tick_at(T0 + timedelta(seconds=5))
+        self.say("buy milk")
+        self.assertEqual(self.kinds(self.say("later")), ["later_ack"])
+        self.assertEqual(self.person()["pending_title"], "Buy milk")
+
+    def test_later_with_no_wait_and_no_nudge_is_still_no_open_nudge(self):
+        self.greet()
+        self.say("Call mum tomorrow")
+        self.assertEqual(self.kinds(self.say("luego")), ["no_open_nudge"])
+
+    def test_not_now_while_waiting_is_not_read_as_a_time(self):
+        self.greet()
+        self.say("buy milk")
+        self.assertEqual(self.kinds(self.say("not now")), ["no_open_nudge"])
+        self.assertEqual(self.person()["pending_title"], "Buy milk")
+        self.assertEqual(self.commitments(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
