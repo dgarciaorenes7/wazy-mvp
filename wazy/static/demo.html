@@ -3,184 +3,819 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Wazy · Live MVP</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400..700&family=Instrument+Serif:ital@0;1&display=swap">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<meta name="color-scheme" content="light dark">
+<title>Wazy · Presenter view</title>
 <style>
-  :root { --dk:#0E2A22; --g:#1F7A55; --mint:#7FD1A8; --bg:#F6F4EE; --card:#FDFCF9; --line:#E3E0D8; --ink:#10241D; --mut:#5E6E67; }
+  /* ---- Colours (tokens), swapped for dark mode. Text pairs meet WCAG AA. ---- */
+  :root {
+    --dk:#0E2A22; --brand:#0E3B2E; --g:#1F7A55; --g-text:#17643F; --mint:#7FD1A8; --bg:#F6F4EE; --card:#FDFCF9;
+    --line:#E3E0D8; --ink:#10241D; --mut:#56645E; --focus:#1A56DB; --wall:#EFEAE2; --bot:#FFFFFF; --me:#D9FDD3;
+    --chat-ink:#111B21; --chat-mut:#54656F; --nudge:#1F7A55; --soft:#E1F1E8; --danger:#A8231A; --hi:#EEF7F1;
+    --later:#E3EFE8; --on-later:#0E3B2E;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --dk:#0A1F19; --brand:#103B2E; --g:#1F7A55; --g-text:#7FD1A8; --mint:#7FD1A8; --bg:#0D1512; --card:#141F1B;
+      --line:#2A3833; --ink:#E6EEEA; --mut:#AEBDB6; --focus:#8AB4F8; --wall:#0B141A; --bot:#202C33; --me:#005C4B;
+      --chat-ink:#E9EDEF; --chat-mut:#C2CDD3; --nudge:#3FBF86; --soft:#16352A; --danger:#FFB4A9; --hi:#173027;
+      --later:#2A3942; --on-later:#D9FDD3;
+    }
+  }
   * { box-sizing:border-box; }
-  html, body { margin:0; min-height:100%; }
-  body { font-family:"DM Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased; }
-  .wrap { min-height:100vh; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:80px; align-items:center; max-width:1320px; margin:0 auto; padding:36px 64px; }
-  .brand { display:flex; align-items:center; gap:12px; margin-bottom:30px; }
-  .logo { width:40px; height:40px; border-radius:12px; background:var(--dk); color:var(--mint); display:grid; place-items:center; font-weight:700; font-size:20px; }
-  .brand b { font-size:21px; letter-spacing:-.01em; }
-  .live { margin-left:6px; display:inline-flex; align-items:center; gap:7px; font-size:11.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--g); background:#E1F1E8; padding:6px 11px; border-radius:999px; }
-  .dot { width:7px; height:7px; border-radius:50%; background:var(--g); animation:pulse 1.6s infinite; }
+  html, body { margin:0; }
+  body { font:15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+         background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased; }
+  button, input, a { font:inherit; }
+  :focus-visible { outline:3px solid var(--focus); outline-offset:2px; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+  .page { max-width:1380px; margin:0 auto; padding:18px 32px 40px; }
+
+  /* Top bar */
+  .top { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+  .logo { width:38px; height:38px; border-radius:11px; background:var(--dk); color:var(--mint); display:grid; place-items:center; font-weight:700; font-size:19px; }
+  .top b { font-size:20px; letter-spacing:-.01em; }
+  .live { display:inline-flex; align-items:center; gap:7px; font-size:11.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+          color:var(--g-text); background:var(--soft); padding:6px 11px; border-radius:999px; }
+  .dot { width:7px; height:7px; border-radius:50%; background:currentColor; animation:pulse 1.6s infinite; }
+  .live.off { color:var(--mut); background:var(--line); } .live.off .dot { animation:none; }
   @keyframes pulse { 50% { opacity:.25; } }
-  h1 { font-size:54px; line-height:1.04; letter-spacing:-.035em; margin:0 0 16px; font-weight:700; max-width:640px; }
-  h1 em { font-family:"Instrument Serif",Georgia,serif; font-weight:400; font-style:italic; color:var(--g); letter-spacing:-.01em; }
-  .lede { font-size:19px; line-height:1.5; color:var(--mut); margin:0 0 38px; max-width:580px; }
-  .steps { display:grid; grid-template-columns:repeat(4,1fr); margin-bottom:34px; }
-  .step { position:relative; padding-top:46px; }
-  .step::before { content:""; position:absolute; top:15px; left:0; right:0; height:2px; background:var(--line); transition:background .4s; }
-  .step:first-child::before { left:16px; } .step:last-child::before { right:calc(100% - 16px); }
-  .step .n { position:absolute; top:0; left:0; width:32px; height:32px; border-radius:50%; background:var(--card); border:2px solid var(--line);
-             display:grid; place-items:center; font-size:13px; font-weight:700; color:var(--mut); transition:all .35s; }
-  .step .t { font-weight:700; font-size:16px; }
-  .step .s { font-size:14px; line-height:1.35; color:var(--mut); margin-top:4px; min-height:38px; padding-right:14px; }
-  .step.done .n { background:var(--g); border-color:var(--g); color:#fff; }
-  .step.done::before { background:var(--g); }
-  .step.active .n { border-color:var(--g); color:var(--g); box-shadow:0 0 0 6px rgba(31,122,85,.13); }
-  .step.active .s { color:var(--g); font-weight:600; }
-  .panel { background:var(--card); border:1px solid var(--line); border-radius:20px; padding:20px 24px 8px; margin-bottom:26px; box-shadow:0 1px 2px rgba(16,36,29,.04); }
-  .panel-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px; }
-  .panel-head h2 { font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--mut); margin:0; font-weight:700; }
-  .panel-head code { font:12px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--mut); }
-  .row { display:grid; grid-template-columns:1fr auto auto; gap:18px; align-items:center; padding:13px 0; border-top:1px solid var(--line); }
-  #outcomes .row:first-child { border-top:0; }
-  .row .title { font-weight:600; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .row .when { font-size:13px; color:var(--mut); font-variant-numeric:tabular-nums; }
-  .pill { font-size:12px; font-weight:700; padding:4px 10px; border-radius:999px; white-space:nowrap; }
-  .p-done { background:#DCF3E6; color:#0B6B43; } .p-later { background:#FDEBD3; color:#9A3412; } .p-pending { background:#E6EEF9; color:#1E4E8C; }
-  .p-stop, .p-no_reply { background:#FBE1DE; color:#A61B1B; }
-  .empty { padding:12px 0 16px; color:var(--mut); font-size:15px; }
-  #learning .row:first-child { border-top:0; }
-  .p-asked { background:#E6EEF9; color:#1E4E8C; } .p-approved { background:#DCF3E6; color:#0B6B43; }
-  .p-rejected, .p-forgotten { background:#FBE1DE; color:#A61B1B; } .p-paused, .p-resumed { background:#EEE; color:#444; }
-  .foot { display:flex; align-items:center; gap:18px; }
-  #qr { background:#fff; padding:8px; border-radius:14px; border:1px solid var(--line); width:106px; height:106px; display:none; place-items:center; }
-  #qr.on { display:grid; }
-  #qr img, #qr canvas { width:88px !important; height:88px !important; }
-  .qr-text b { display:block; font-size:16px; } .qr-text span { font-size:14px; color:var(--mut); }
-  .phone { position:relative; width:360px; height:min(760px, calc(100vh - 72px)); min-height:600px; border-radius:58px; background:#121212; padding:12px;
+  @media (prefers-reduced-motion: reduce) { .dot { animation:none; } }
+  .actions { margin-left:auto; display:flex; gap:10px; }
+  .btn { display:inline-flex; align-items:center; min-height:40px; padding:0 16px; border-radius:999px; border:1px solid var(--line);
+         background:var(--card); color:var(--ink); text-decoration:none; font-weight:600; cursor:pointer; }
+  .btn.danger { color:var(--danger); border-color:currentColor; }
+  #problem { margin:0 0 16px; padding:10px 14px; border-radius:12px; background:#FBE1DE; color:#8A1414; font-weight:600; }
+
+  /* Two columns: the phone on the left (stays in view), the dashboard on the right. */
+  .layout { display:grid; grid-template-columns:360px minmax(0,1fr); gap:32px; align-items:start; }
+  .stage { position:sticky; top:16px; }
+  .switch { display:flex; gap:4px; padding:4px; margin:0 0 10px; border-radius:999px; background:var(--line); width:max-content; }
+  .switch button { border:0; border-radius:999px; padding:7px 14px; background:transparent; color:var(--ink); font-weight:600; cursor:pointer; min-height:36px; }
+  .switch button[aria-pressed="true"] { background:var(--card); box-shadow:0 1px 2px rgba(0,0,0,.15); }
+  .phone { position:relative; width:360px; height:min(700px, calc(100vh - 150px)); min-height:520px; border-radius:50px; background:#121212; padding:11px;
            box-shadow:0 0 0 2px #2b2b2b inset, 0 40px 80px -30px rgba(14,42,34,.45), 0 18px 36px -18px rgba(0,0,0,.35); }
-  .phone::after { content:""; position:absolute; top:24px; left:50%; transform:translateX(-50%); width:100px; height:28px; border-radius:20px; background:#121212; }
-  .phone iframe { width:100%; height:100%; border:0; border-radius:46px; background:#EFEAE2; display:block; }
+  .phone::after { content:""; position:absolute; top:22px; left:50%; transform:translateX(-50%); width:96px; height:26px; border-radius:20px; background:#121212; }
+  .screen { height:100%; border-radius:40px; overflow:hidden; display:flex; flex-direction:column; background:var(--wall); color:var(--chat-ink); }
+  .screen[hidden] { display:none; }
+  .screen header { background:var(--brand); color:#fff; display:flex; align-items:center; gap:10px; padding:44px 16px 10px; flex:none; }
+  .avatar { width:36px; height:36px; border-radius:50%; background:#fff; color:#0E3B2E; display:grid; place-items:center; font-weight:800; flex:none; }
+  .screen header strong { display:block; font-size:16px; }
+  #who-live { display:block; font-size:12.5px; opacity:.92; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:250px; }
+  #convo { flex:1; overflow-y:auto; padding:10px 10px 14px; display:flex; flex-direction:column; gap:6px; font-size:15px; }
+  .msg { max-width:86%; padding:6px 9px 4px; border-radius:10px; box-shadow:0 1px .5px rgba(0,0,0,.13); white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.35; }
+  .msg.user { align-self:flex-end; background:var(--me); border-top-right-radius:3px; }
+  .msg.bot { align-self:flex-start; background:var(--bot); border-top-left-radius:3px; }
+  .msg.nudge { border-left:4px solid var(--nudge); font-weight:600; }
+  .msg .time { display:block; font-size:11.5px; color:var(--chat-mut); text-align:right; font-weight:400; }
+  .answer { display:flex; gap:6px; margin-top:7px; }
+  .answer button { flex:1; min-height:36px; border:0; border-radius:8px; font-weight:650; }
+  .answer .done { background:#1F7A55; color:#fff; } .answer .later { background:var(--later); color:var(--on-later); }
+  .answer button:disabled { cursor:default; }
+  .convo-empty { margin:auto; text-align:center; color:var(--chat-mut); padding:20px; }
+  #mine { flex:1; width:100%; border:0; display:block; background:var(--wall); }
+
+  /* Hero: headline and the "try it on your phone" box. */
+  .hero { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:24px; align-items:center; margin-bottom:18px; }
+  h1 { font-size:38px; line-height:1.06; letter-spacing:-.03em; margin:0 0 10px; font-weight:700; }
+  h1 em { font-family:"Iowan Old Style","Palatino Linotype",Georgia,serif; font-weight:400; font-style:italic; color:var(--g-text); letter-spacing:-.01em; }
+  .lede { font-size:16px; color:var(--mut); margin:0; max-width:560px; }
+  .try { display:flex; gap:14px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:18px; padding:12px 18px 12px 12px; width:380px; }
+  #qr { width:128px; height:128px; flex:none; background:#fff; border-radius:10px; display:grid; place-items:center; border:1px solid var(--line); }
+  #qr svg { width:100%; height:100%; display:block; }
+  #qr.none { display:none; }
+  .try b { display:block; font-size:16px; margin-bottom:4px; }
+  #link { display:block; font:600 15px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--g-text); word-break:break-all; }
+  #link-hint { display:block; font-size:13px; color:var(--mut); margin-top:4px; }
+  .try.big #link { font-size:20px; }
+
+  /* The story of the latest commitment, in four steps. */
+  .steps { display:grid; grid-template-columns:repeat(4,1fr); margin:0 0 18px; padding:0; list-style:none; }
+  .step { position:relative; padding-top:42px; }
+  .step::before { content:""; position:absolute; top:14px; left:0; right:0; height:2px; background:var(--line); }
+  .step:first-child::before { left:15px; } .step:last-child::before { right:calc(100% - 15px); }
+  .step .n { position:absolute; top:0; left:0; width:30px; height:30px; border-radius:50%; background:var(--card); border:2px solid var(--line);
+             display:grid; place-items:center; font-size:13px; font-weight:700; color:var(--mut); }
+  .step .t { font-weight:700; }
+  .step .s { font-size:13.5px; line-height:1.35; color:var(--mut); margin-top:2px; min-height:36px; padding-right:12px; overflow-wrap:anywhere; }
+  .step.done .n { background:var(--g); border-color:var(--g); color:#fff; } .step.done::before { background:var(--g); }
+  .step.active .n { border-color:var(--g); color:var(--g-text); box-shadow:0 0 0 5px rgba(31,122,85,.15); }
+  .step.active .s { color:var(--g-text); font-weight:600; }
+
+  /* Stats tiles */
+  .kpis { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:10px; margin:0 0 6px; }
+  .kpi { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:10px 14px; }
+  .kpi .v { display:block; font-size:26px; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+  .kpi .k { display:block; font-size:12.5px; color:var(--mut); }
+  .kpi.main { background:var(--soft); border-color:transparent; } .kpi.main .v { color:var(--g-text); }
+  #stats-more { font-size:13px; color:var(--mut); margin:0 0 16px; }
+
+  /* Panels with tables */
+  .panels { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:16px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px 16px 10px; min-width:0; overflow-x:auto; }
+  .panel.wide { grid-column:1 / -1; }
+  .panel-head { display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:4px; }
+  .panel-head h2 { font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--mut); margin:0; font-weight:700; }
+  .panel-head code { font:12px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--mut); }
+  .panel-note { font-size:13px; color:var(--mut); margin:0 0 6px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; table-layout:auto; }
+  th { text-align:left; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--mut); font-weight:700; padding:6px 8px 6px 0; }
+  td { padding:8px 8px 8px 0; border-top:1px solid var(--line); vertical-align:top; }
+  td.title { font-weight:600; min-width:120px; max-width:280px; overflow-wrap:anywhere; }
+  td.nowrap, th { white-space:nowrap; }
+  td.title .sub { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  td.quote { min-width:120px; max-width:240px; overflow-wrap:anywhere; }
+  td.num, td.when, th.num { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  td.num, th.num { text-align:right; }
+  td.when, .muted { color:var(--mut); }
+  .sub { display:block; font-size:12.5px; color:var(--mut); font-weight:400; }
+  tr.focus td { background:var(--hi); }
+  .empty { padding:10px 0 12px; color:var(--mut); }
+  .pill { display:inline-block; font-size:12px; font-weight:700; padding:3px 9px; border-radius:999px; white-space:nowrap; background:#ECEBE6; color:#3B3B3B; }
+  .p-done, .p-approved, .p-stated, .p-fixed { background:#DCF3E6; color:#0B6B43; }
+  .p-later, .p-default { background:#FDEBD3; color:#8A3410; }
+  .p-pending, .p-scheduled, .p-asked, .p-learned, .p-nudged { background:#E6EEF9; color:#1E4E8C; }
+  .p-stop, .p-stopped, .p-no_reply, .p-rejected, .p-forgotten, .p-open { background:#FBE1DE; color:#A61B1B; }
+
+  /* Narrow screens: stack everything. */
+  @media (max-width: 1000px) {
+    .page { padding:14px 16px 32px; }
+    .layout { grid-template-columns:minmax(0,1fr); }
+    .stage { position:static; }
+    .phone { width:100%; max-width:360px; height:600px; }
+    .hero { grid-template-columns:minmax(0,1fr); }
+    .try { width:auto; }
+    .kpis { grid-template-columns:repeat(3, minmax(0,1fr)); }
+    .panels { grid-template-columns:minmax(0,1fr); }
+    .panel { overflow-x:auto; }
+    h1 { font-size:30px; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <main>
-    <div class="brand"><div class="logo">W</div><b>Wazy</b><span class="live"><span class="dot"></span>Live MVP</span></div>
-    <h1>One commitment. <em>One nudge.</em> One recorded outcome.</h1>
-    <p class="lede">Text Wazy a small commitment in your own words. It confirms when it will nudge you, sends a single nudge with Done or Later, and logs what happened.</p>
-    <div class="steps">
-      <div class="step" id="s1"><div class="n">1</div><div class="t">Text it</div><div class="s"></div></div>
-      <div class="step" id="s2"><div class="n">2</div><div class="t">Confirmed</div><div class="s"></div></div>
-      <div class="step" id="s3"><div class="n">3</div><div class="t">Nudge</div><div class="s"></div></div>
-      <div class="step" id="s4"><div class="n">4</div><div class="t">Outcome</div><div class="s"></div></div>
+<div class="page">
+  <div class="top">
+    <div class="logo" aria-hidden="true">W</div><b>Wazy</b>
+    <span class="live" id="live"><span class="dot" aria-hidden="true"></span><span id="live-text">Live MVP</span></span>
+    <div class="actions">
+      <a class="btn" href="/chat" target="_blank" rel="noopener">Open my chat</a>
+      <button class="btn danger" id="reset" type="button">Reset demo</button>
     </div>
-    <div class="panel">
-      <div class="panel-head"><h2>Outcome log</h2><code>nudge_outcomes</code></div>
-      <div id="outcomes"></div>
-    </div>
-    <div class="panel">
-      <div class="panel-head"><h2>Learning log</h2><code id="learn-stats">learning_log</code></div>
-      <div id="learning"></div>
-    </div>
-    <div class="foot"><div id="qr"></div><div class="qr-text"><b>Try it on your phone</b><span id="qr-hint">Start with ./run.sh --phone to get a QR code</span></div></div>
-  </main>
-  <div class="phone"><iframe src="/" title="Wazy chat"></iframe></div>
+  </div>
+  <p id="problem" role="alert" hidden></p>
+
+  <div class="layout">
+    <!-- Left: the phone. "Live view" shows the most recently active person; "My chat" lets the presenter type. -->
+    <section class="stage" aria-labelledby="stage-title">
+      <h2 id="stage-title" class="sr-only">Live conversation</h2>
+      <div class="switch" role="group" aria-label="What the phone shows">
+        <button type="button" id="show-live" aria-pressed="true">Live view</button>
+        <button type="button" id="show-mine" aria-pressed="false">My chat</button>
+      </div>
+      <div class="phone">
+        <div class="screen" id="live-screen">
+          <header>
+            <div class="avatar" aria-hidden="true">W</div>
+            <div><strong>Wazy</strong><span id="who-live">Waiting for someone to text…</span></div>
+          </header>
+          <div id="convo" role="log" aria-live="polite" aria-relevant="additions" aria-label="Live conversation"></div>
+        </div>
+        <div class="screen" id="mine-screen" hidden></div>
+      </div>
+    </section>
+
+    <main>
+      <section class="hero">
+        <div>
+          <h1>One commitment. <em>One nudge.</em> One recorded outcome.</h1>
+          <p class="lede">Text Wazy a small commitment in English or Spanish. Code decides the time, Wazy confirms it in one line,
+            sends a single nudge with Done or Later, and records what happened.</p>
+        </div>
+        <div class="try" id="try">
+          <div id="qr" class="none"></div>
+          <div>
+            <b>Try it on your phone</b>
+            <a id="link" href="#" hidden></a>
+            <span id="link-hint">Start with ./run.sh --phone (or set WAZY_PUBLIC_URL) to get a link.</span>
+          </div>
+        </div>
+      </section>
+
+      <ol class="steps" aria-label="The latest commitment, step by step">
+        <li class="step" id="s1"><div class="n" aria-hidden="true">1</div><div class="t">Text it</div><div class="s"></div></li>
+        <li class="step" id="s2"><div class="n" aria-hidden="true">2</div><div class="t">Confirmed</div><div class="s"></div></li>
+        <li class="step" id="s3"><div class="n" aria-hidden="true">3</div><div class="t">Nudge</div><div class="s"></div></li>
+        <li class="step" id="s4"><div class="n" aria-hidden="true">4</div><div class="t">Outcome</div><div class="s"></div></li>
+      </ol>
+
+      <section aria-labelledby="stats-title">
+        <h2 id="stats-title" class="sr-only">Stats</h2>
+        <div class="kpis" id="kpis"></div>
+        <p id="stats-more"></p>
+      </section>
+
+      <div class="panels">
+        <section class="panel wide" aria-labelledby="h-commitments">
+          <div class="panel-head"><h2 id="h-commitments">Commitments</h2><code>commitments</code></div>
+          <div id="commitments"></div>
+        </section>
+        <section class="panel" aria-labelledby="h-misses">
+          <div class="panel-head"><h2 id="h-misses">What Wazy could not read</h2><code>reader_misses</code></div>
+          <p class="panel-note">Every message the rules could not turn into a time, and the reply that fixed it. This is how the reader learns.</p>
+          <div id="misses"></div>
+        </section>
+        <section class="panel" aria-labelledby="h-outcomes">
+          <div class="panel-head"><h2 id="h-outcomes">Outcomes</h2><code>nudge_outcomes</code></div>
+          <div id="outcomes"></div>
+        </section>
+        <section class="panel" aria-labelledby="h-learning">
+          <div class="panel-head"><h2 id="h-learning">Learning log</h2><code>learning_log</code></div>
+          <div id="learning"></div>
+        </section>
+        <section class="panel" aria-labelledby="h-users">
+          <div class="panel-head"><h2 id="h-users">People</h2><code>users</code></div>
+          <div id="users"></div>
+        </section>
+      </div>
+    </main>
+  </div>
 </div>
+
 <script>
-  const $ = id => document.getElementById(id);
-  const LABEL = { done: 'Done', later: 'Later', pending: 'Waiting', stop: 'Stopped', no_reply: 'No reply' };
-  let state = null;
+/*
+  Wazy presenter view (this computer only).
 
-  const seconds = s => s == null ? '' : (s < 90 ? s + ' s' : Math.round(s / 60) + ' min');
-  const clock = iso => iso ? iso.slice(11, 16) : '';
-  function day(iso) {
-    const d = new Date(iso), today = new Date(), tomorrow = new Date(); tomorrow.setDate(today.getDate() + 1);
-    if (d.toDateString() === today.toDateString()) return 'today at ' + clock(iso);
-    if (d.toDateString() === tomorrow.toDateString()) return 'tomorrow at ' + clock(iso);
-    return d.toLocaleDateString('en-GB', { weekday: 'long' }) + ' at ' + clock(iso);
+  Every 1.5 s it reads GET /api/admin/state and redraws:
+    - the live conversation of focus_user (the person who wrote or was nudged most recently),
+    - the latest commitment as four steps, the stats, and the tables below.
+  GET /api/link gives the public chat link for the QR box; POST /api/reset clears the demo after confirm().
+
+  Safety rule: all text from the server is shown only via textContent (through the el() helper below),
+  never as HTML. A message like "<script>" appears as plain characters.
+*/
+
+const $ = id => document.getElementById(id);
+const POLL_MS = 1500;
+
+// Labels for the codes stored in the database.
+const STATUS = { scheduled: 'Scheduled', nudged: 'Nudged', done: 'Done', stopped: 'Stopped', no_reply: 'No reply', cancelled: 'Cancelled' };
+const OUTCOME = { pending: 'Waiting', done: 'Done', later: 'Later', stop: 'Stopped', no_reply: 'No reply', cancelled: 'Cancelled' };
+const SOURCE = { stated: 'Stated', default: 'Default hour', learned: 'Learned hour' };
+const PROBLEM = { ask_time: 'No time given', invalid_time: 'Impossible time', past_time: 'Already passed', too_far: 'Too far ahead' };
+const EVENT = { asked: 'Asked', approved: 'Approved', rejected: 'Said no', forgotten: 'Forgotten', paused: 'Paused', resumed: 'Resumed' };
+const BUTTONS = { en: ['Done', 'Later'], es: ['Hecho', 'Más tarde'] };
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// ---------- Small helpers ----------
+// Make an element with a class and some text. This is the ONLY way text from the server reaches the page:
+// textContent never parses HTML.
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
+const two = n => String(n).padStart(2, '0');
+const hh = h => (h === null || h === undefined) ? '–' : two(h) + ':00';
+
+// UTC text from the server ("2026-11-03T08:55:00Z") -> "09:55" (today) or "2 Nov 09:55", in this computer's time.
+function fmtUTC(text) {
+  if (!text) return '';
+  const d = new Date(text);
+  if (isNaN(d)) return String(text);
+  const time = two(d.getHours()) + ':' + two(d.getMinutes());
+  if (d.toDateString() === new Date().toDateString()) return time;
+  return d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + time;
+}
+
+// A nudge time in the person's own zone: "Today 20:00", "Tomorrow 09:00:30", "Thu 5 Nov 10:00".
+// nudge_at_local has no zone, so the gap between it and nudge_at (UTC) tells us the person's offset.
+function niceWhen(local, utc) {
+  if (!local) return '';
+  const at = new Date(local + 'Z'), offset = at - new Date(utc), now = new Date(Date.now() + offset);
+  if (isNaN(at) || isNaN(offset)) return String(local).replace('T', ' ');
+  const time = local.slice(11, 19).endsWith(':00') ? local.slice(11, 16) : local.slice(11, 19);
+  const dayNumber = d => Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 86400000);
+  const gap = dayNumber(at) - dayNumber(now);
+  if (gap === 0) return 'Today ' + time;
+  if (gap === 1) return 'Tomorrow ' + time;
+  const year = at.getUTCFullYear() !== now.getUTCFullYear() ? ' ' + at.getUTCFullYear() : '';
+  return DAYS[at.getUTCDay()] + ' ' + at.getUTCDate() + ' ' + MONTHS[at.getUTCMonth()] + year + ' ' + time;
+}
+
+// 75 -> "75 s", 600 -> "10 min", 7200 -> "2 h".
+function duration(seconds) {
+  if (seconds === null || seconds === undefined) return '';
+  if (seconds < 90) return seconds + ' s';
+  if (seconds < 5400) return Math.round(seconds / 60) + ' min';
+  return Math.round(seconds / 3600) + ' h';
+}
+function ago(text) {
+  const d = new Date(text);
+  if (!text || isNaN(d)) return '–';
+  const s = Math.max(0, Math.round((Date.now() - d) / 1000));
+  return s < 60 ? 'just now' : duration(s) + ' ago';
+}
+
+// Short, privacy-friendly names. This screen is projected in class, so phone numbers are partly hidden
+// and browser ids are cut short: "whatsapp:+346••••789" and "web:9f3c2a…".
+function shortWho(id) {
+  id = String(id || '');
+  if (id.startsWith('whatsapp:')) {
+    const number = id.slice(9);
+    return 'WhatsApp ' + number.slice(0, 4) + '••••' + number.slice(-3);
   }
-  function step(i, cls, text) { const e = $('s' + i); e.className = 'step ' + cls; e.querySelector('.s').textContent = text; }
+  if (id === 'web:local') return 'This computer';
+  if (id.startsWith('web:')) return 'Web ' + id.slice(4, 10) + '…';
+  return id.slice(0, 14);
+}
 
-  // The four steps follow the most recent commitment, with a live countdown to its nudge.
-  function steps() {
-    if (!state) return;
-    const c = state.commitments[0];
-    if (!c) { step(1, 'active', 'Waiting for a text…'); step(2, '', ''); step(3, '', ''); step(4, '', ''); return; }
-    const o = state.outcomes.find(x => x.commitment_id === c.id);
-    step(1, 'done', '“' + c.title + '”');
-    step(2, 'done', 'Nudge set for ' + day(c.nudge_at));
-    if (c.status === 'scheduled') {
-      const left = Math.round((new Date(c.nudge_at) - Date.now()) / 1000);
-      step(3, 'active', left > 0 && left <= 180 ? 'Arrives in ' + left + ' s' : 'Scheduled');
-      step(4, '', '');
-    } else if (c.status === 'nudged') {
-      step(3, 'done', 'Sent at ' + clock(o && o.nudged_at));
-      step(4, 'active', 'Waiting for Done or Later');
-    } else {
-      step(3, 'done', 'Sent at ' + clock(o && o.nudged_at));
-      step(4, 'done', o ? LABEL[o.outcome] + (o.seconds_to_respond != null ? ', ' + seconds(o.seconds_to_respond) + ' after the nudge' : '') : (LABEL[c.status] || c.status));
+// A pill: a small coloured label for a status code.
+function pill(code, labels) {
+  return el('span', 'pill p-' + String(code).replace(/[^a-z_]/g, ''), (labels && labels[code]) || code);
+}
+
+// Build a table from a list of rows. columns = [{head, cell: row -> text or element, cls}].
+function table(columns, rows, rowClass) {
+  const t = el('table'), thead = el('thead'), headRow = el('tr'), body = el('tbody');
+  for (const c of columns) {
+    const th = el('th', c.cls === 'num' ? 'num' : '', c.head);
+    th.scope = 'col';
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  for (const r of rows) {
+    const tr = el('tr', rowClass ? rowClass(r) : '');
+    for (const c of columns) {
+      const td = el('td', c.cls || '');
+      const value = c.cell(r);
+      if (value instanceof Node) td.appendChild(value); else td.textContent = value === undefined || value === null ? '' : String(value);
+      tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+  t.append(thead, body);
+  return t;
+}
+
+// Fill a box with a table, an "empty" sentence, and a "+ N more" note. Skipped when nothing changed,
+// so the page does not flicker and text stays selectable.
+const drawn = {};
+function fill(boxId, rows, limit, emptyText, makeTable) {
+  const key = JSON.stringify(rows);
+  if (drawn[boxId] === key) return;
+  drawn[boxId] = key;
+  const box = $(boxId);
+  box.textContent = '';                                   // clears the old table (no HTML is parsed)
+  if (!rows.length) { box.appendChild(el('p', 'empty', emptyText)); return; }
+  box.appendChild(makeTable(rows.slice(0, limit)));
+  if (rows.length > limit) box.appendChild(el('p', 'empty', '+ ' + (rows.length - limit) + ' more'));
+}
+const newestFirst = list => (Array.isArray(list) ? list.slice() : []).sort((a, b) => (b.id || 0) - (a.id || 0));
+
+// ---------- The live conversation (same rules as the chat: textContent only) ----------
+let convoUser = null;
+const shown = new Map();
+function drawConversation(state) {
+  const box = $('convo');
+  const messages = Array.isArray(state.messages) ? state.messages : [];
+  const open = Array.isArray(state.open) ? state.open : [];
+  if (state.focus_user !== convoUser) {                   // someone else is now the most active: start again
+    convoUser = state.focus_user;
+    box.textContent = '';
+    shown.clear();
+  }
+  const person = (state.users || []).find(u => u.id === state.focus_user);
+  $('who-live').textContent = state.focus_user
+    ? shortWho(state.focus_user) + (person ? ' · ' + String(person.lang).toUpperCase() + ' · ' + person.tz : '')
+    : 'Waiting for someone to text…';
+
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const keys = new Set(messages.map(m => m.id + '|' + m.created_at));
+  for (const [key, bubble] of shown) if (!keys.has(key)) { bubble.remove(); shown.delete(key); }
+  let added = false;
+  for (const m of messages) {
+    const key = m.id + '|' + m.created_at;
+    if (!shown.has(key)) {
+      const mine = m.role === 'user';
+      const bubble = el('div', 'msg ' + (mine ? 'user' : 'bot') + (m.kind === 'nudge' ? ' nudge' : ''));
+      if (!mine && (m.lang === 'en' || m.lang === 'es')) bubble.lang = m.lang;
+      bubble.append(el('span', 'sr-only', mine ? 'Person:' : 'Wazy:'), el('span', '', m.text), el('span', 'time', fmtUTC(m.created_at)));
+      box.appendChild(bubble);
+      shown.set(key, bubble);
+      added = true;
+    }
+    // Done / Later under open nudges, as on the person's phone. Shown, not pressable: only that person can answer.
+    const bubble = shown.get(key), row = bubble.querySelector('.answer'), isOpen = open.includes(m.id);
+    if (row && !isOpen) row.remove();
+    if (isOpen && !row) {
+      const answerRow = el('div', 'answer');
+      const words = BUTTONS[m.lang] || BUTTONS.en;
+      answerRow.append(el('button', 'done', words[0]), el('button', 'later', words[1]));
+      for (const b of answerRow.children) { b.type = 'button'; b.disabled = true; b.title = 'Only the person can answer'; }
+      bubble.insertBefore(answerRow, bubble.querySelector('.time'));
     }
   }
+  const empty = box.querySelector('.convo-empty');
+  if (!messages.length && !empty) box.appendChild(el('p', 'convo-empty', 'No messages yet. Scan the code or open the chat and text Wazy a commitment.'));
+  if (messages.length && empty) empty.remove();
+  if (added && (nearBottom || shown.size === messages.length)) box.scrollTop = box.scrollHeight;
+}
 
-  function outcomes() {
-    const list = $('outcomes'); list.innerHTML = '';
-    const rows = state.outcomes.slice(0, 3);
-    if (!rows.length) {
-      const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'No nudges yet. Every Done or Later will appear here.';
-      list.appendChild(e); return;
+// ---------- The four steps: the latest commitment of the person on the phone ----------
+let state = null;
+function step(i, cls, text) { const e = $('s' + i); e.className = 'step ' + cls; e.querySelector('.s').textContent = text; }
+function drawSteps() {
+  if (!state) return;
+  const all = newestFirst(state.commitments);
+  const hasOwner = all.some(c => 'user_id' in c);
+  const c = (hasOwner ? all.filter(x => x.user_id === state.focus_user) : all)[0];
+  if (!c) { step(1, 'active', 'Waiting for a text…'); step(2, '', ''); step(3, '', ''); step(4, '', ''); return; }
+  const o = newestFirst(state.outcomes).find(x => x.commitment_id === c.id);
+  step(1, 'done', '“' + c.title + '”');
+  step(2, 'done', niceWhen(c.nudge_at_local, c.nudge_at) + ' · ' + (SOURCE[c.time_source] || c.time_source));
+  if (c.status === 'scheduled') {
+    const left = Math.round((new Date(c.nudge_at) - Date.now()) / 1000);
+    const text = left > 0 && left <= 180 ? 'Arrives in ' + left + ' s' : (left <= 0 ? 'Due now' : 'Scheduled');
+    step(3, 'active', c.later_count > 0 ? 'Later: next nudge ' + niceWhen(c.nudge_at_local, c.nudge_at) : text);
+    step(4, '', c.later_count > 0 ? 'Later × ' + c.later_count : '');
+  } else if (c.status === 'nudged') {
+    step(3, 'done', 'Sent ' + fmtUTC(o && o.nudged_at));
+    step(4, 'active', 'Waiting for Done or Later');
+  } else if (c.status === 'cancelled' && !o) {
+    step(3, '', 'Not sent'); step(4, 'done', 'Cancelled');
+  } else {
+    step(3, 'done', o ? 'Sent ' + fmtUTC(o.nudged_at) : 'Sent');
+    const label = o ? (OUTCOME[o.outcome] || o.outcome) : (STATUS[c.status] || c.status);
+    const speed = o && o.seconds_to_respond !== null && o.seconds_to_respond !== undefined ? ', ' + duration(o.seconds_to_respond) + ' after the nudge' : '';
+    step(4, 'done', label + speed);
+  }
+}
+
+// ---------- Stats and tables ----------
+function drawStats(st) {
+  st = st || {};
+  const tiles = [['Done rate', (st.done_rate || 0) + '%', true], ['Commitments', st.commitments || 0], ['Nudges sent', st.nudges_sent || 0],
+                 ['Done', st.done || 0], ['Later', st.later || 0], ['No reply', st.no_reply || 0]];
+  const key = JSON.stringify(st);
+  if (drawn.kpis === key) return;
+  drawn.kpis = key;
+  const box = $('kpis');
+  box.textContent = '';
+  for (const [label, value, main] of tiles) {
+    const tile = el('div', 'kpi' + (main ? ' main' : ''));
+    tile.append(el('span', 'v', value), el('span', 'k', label));
+    box.appendChild(tile);
+  }
+  $('stats-more').textContent = 'Waiting for an answer: ' + (st.pending || 0) + ' · Stopped: ' + (st.stopped || 0) +
+    ' · Cancelled: ' + (st.cancelled || 0) + ' · Done rate = Done taps out of answered nudges';
+}
+
+function drawTables() {
+  const focus = state.focus_user;
+  const people = state.users || [];
+  const many = people.length > 1;
+  const owner = row => row.user_id ? shortWho(row.user_id) : '';
+  const isFocus = row => (row.user_id && row.user_id === focus) ? 'focus' : '';
+
+  fill('commitments', newestFirst(state.commitments), 8, 'No commitments yet.', rows => table([
+    { head: 'Title', cls: 'title', cell: c => {
+        const box = el('span', '', c.title);
+        if (c.raw_text) box.appendChild(el('span', 'sub', 'Typed: “' + c.raw_text + '”'));
+        return box; } },
+    { head: 'Nudge (their time)', cls: 'when nowrap', cell: c => niceWhen(c.nudge_at_local, c.nudge_at) + (Number(c.deadline) ? ' · deadline' : '') },
+    { head: 'Time from', cell: c => pill(c.time_source, SOURCE) },
+    { head: 'Status', cell: c => {
+        const box = el('span'); box.appendChild(pill(c.status, STATUS));
+        if (c.later_count > 0) box.appendChild(el('span', 'sub', 'Later × ' + c.later_count));
+        return box; } },
+    { head: 'Reader', cls: 'muted', cell: c => c.reader || 'rules' },
+  ].concat(many ? [{ head: 'Who', cls: 'muted nowrap', cell: owner }] : []), rows, isFocus));
+
+  fill('misses', newestFirst(state.reader_misses), 6, 'Nothing missed yet. When Wazy cannot read a time, it lands here with the fix.', rows => table([
+    { head: 'They wrote', cls: 'quote', cell: r => '“' + r.original + '”' },
+    { head: 'Problem', cell: r => pill(r.problem, PROBLEM) },
+    { head: 'Fixed by', cls: 'quote', cell: r => r.reply ? '“' + r.reply + '”' : pill('open', { open: 'Still open' }) },
+  ], rows, isFocus));
+
+  fill('outcomes', newestFirst(state.outcomes), 6, 'No nudges yet. Every Done or Later appears here.', rows => table([
+    { head: 'Nudge', cls: 'title', cell: o => o.title },
+    { head: 'Sent', cls: 'when', cell: o => fmtUTC(o.nudged_at) },
+    { head: 'Outcome', cell: o => pill(o.outcome, OUTCOME) },
+    { head: 'Took', cls: 'num', cell: o => duration(o.seconds_to_respond) },
+  ], rows, isFocus));
+
+  fill('learning', newestFirst(state.learning_log), 5, 'Nothing learned yet. Wazy asks before changing anyone\'s default nudge time.', rows => table([
+    { head: 'Event', cell: r => pill(r.event, EVENT) },
+    { head: 'Default hour', cls: 'nowrap', cell: r => hh(r.old_hour) + ' → ' + hh(r.new_hour) },
+    { head: 'When', cls: 'when', cell: r => fmtUTC(r.created_at) },
+  ].concat(many ? [{ head: 'Who', cls: 'muted', cell: owner }] : []), rows, isFocus));
+
+  const sortedPeople = people.slice().sort((a, b) => String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')));
+  fill('users', sortedPeople, 8, 'Nobody has texted Wazy yet.', rows => table([
+    { head: 'Who', cls: 'title', cell: u => {
+        const box = el('span', '', shortWho(u.id));
+        const details = String(u.lang || '').toUpperCase() + ' · ' + (u.tz || '') + (u.id === focus ? ' · on the phone now' : '');
+        box.appendChild(el('span', 'sub', details));
+        return box; } },
+    { head: 'Items', cls: 'num', cell: u => u.commitments },
+    { head: 'Learned', cls: 'nowrap', cell: u => u.learned_hour === null || u.learned_hour === undefined ? '–' : hh(u.learned_hour) },
+    { head: 'Seen', cls: 'when', cell: u => (Number(u.opted_out) ? 'stopped · ' : '') + ago(u.last_seen_at) },
+  ], rows, u => u.id === focus ? 'focus' : ''));
+}
+
+// ---------- Polling ----------
+function setLive(ok, message) {
+  $('live').classList.toggle('off', !ok);
+  $('live-text').textContent = ok ? 'Live MVP' : 'Offline';
+  const problem = $('problem');
+  problem.hidden = ok;
+  problem.textContent = ok ? '' : message;
+}
+async function refresh() {
+  try {
+    const response = await fetch('/api/admin/state', { credentials: 'same-origin', cache: 'no-store' });
+    if (response.status === 403) { setLive(false, 'The presenter view only opens on the computer running Wazy (or with /demo?admin=CODE).'); return; }
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    state = await response.json();
+    setLive(true, '');
+    drawConversation(state);
+    drawSteps();
+    drawStats(state.stats);
+    drawTables();
+  } catch (e) {
+    setLive(false, 'Cannot reach the Wazy server. Is it still running?');
+  }
+}
+function poll() { refresh().finally(() => setTimeout(poll, POLL_MS)); }
+
+// ---------- The phone switch: live view of the active person, or the presenter's own chat ----------
+function showMine(mine) {
+  $('show-live').setAttribute('aria-pressed', String(!mine));
+  $('show-mine').setAttribute('aria-pressed', String(mine));
+  $('live-screen').hidden = mine;
+  $('mine-screen').hidden = !mine;
+  if (mine && !$('mine')) {                               // load the chat only the first time it is needed
+    const frame = el('iframe');
+    frame.id = 'mine';
+    frame.src = '/chat';
+    frame.title = 'My Wazy chat';
+    $('mine-screen').appendChild(frame);
+  }
+}
+$('show-live').addEventListener('click', () => showMine(false));
+$('show-mine').addEventListener('click', () => showMine(true));
+
+// ---------- Reset (asks first) ----------
+$('reset').addEventListener('click', async () => {
+  if (!window.confirm('Reset the demo? This clears every conversation, commitment and outcome. Settings stay.')) return;
+  try {
+    const response = await fetch('/api/reset', {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    for (const key of Object.keys(drawn)) delete drawn[key];
+    refresh();
+  } catch (e) {
+    setLive(false, 'Reset did not work. Try again.');
+  }
+});
+
+// ===================== QR code maker (no external library) =====================
+// Turns a short text (the chat link) into a grid of dark/light squares, following the QR standard:
+//   1. text -> bytes -> bits (byte mode), padded to the size of the smallest QR "version" that fits;
+//   2. Reed-Solomon error-correction bytes are added (level M: still scans with about 15% damaged);
+//   3. the fixed patterns are drawn (three corner squares, timing lines, alignment squares);
+//   4. the bits are laid in a zigzag, then one of 8 masks flips some of them; we keep the mask that
+//      leaves the fewest confusing patterns, as the standard says.
+// Versions 1 to 10 only (up to 213 bytes), which is plenty for a link.
+const QR = (() => {
+  // Per version (index = version, 1..10), level M: error-correction bytes per block, number of blocks,
+  // and the centres of the alignment squares.
+  const ECC_PER_BLOCK = [0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26];
+  const BLOCKS = [0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5];
+  const ALIGN = [[], [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50]];
+
+  // How many squares of a version carry data (everything except the fixed patterns), and so how many bytes.
+  function dataModules(v) {
+    let n = (16 * v + 128) * v + 64;
+    if (v >= 2) { const a = Math.floor(v / 7) + 2; n -= (25 * a - 10) * a - 55; if (v >= 7) n -= 36; }
+    return n;
+  }
+  const totalBytes = v => Math.floor(dataModules(v) / 8);
+  const dataBytes = v => totalBytes(v) - ECC_PER_BLOCK[v] * BLOCKS[v];
+
+  // Reed-Solomon maths works on bytes in the field GF(256) with the QR polynomial 0x11D.
+  function multiply(x, y) {
+    let z = 0;
+    for (let i = 7; i >= 0; i--) { z = (z << 1) ^ ((z >>> 7) * 0x11D); z ^= ((y >>> i) & 1) * x; }
+    return z;
+  }
+  function divisor(degree) {
+    const result = new Array(degree).fill(0);
+    result[degree - 1] = 1;
+    let root = 1;
+    for (let i = 0; i < degree; i++) {
+      for (let j = 0; j < degree; j++) { result[j] = multiply(result[j], root); if (j + 1 < degree) result[j] ^= result[j + 1]; }
+      root = multiply(root, 2);
     }
-    for (const o of rows) {
-      const row = document.createElement('div'); row.className = 'row';
-      const title = document.createElement('div'); title.className = 'title'; title.textContent = o.title;
-      const when = document.createElement('div'); when.className = 'when';
-      when.textContent = o.outcome === 'pending' ? 'nudged ' + o.nudged_at.slice(11, 19) : seconds(o.seconds_to_respond) + ' after nudge';
-      const pill = document.createElement('span'); pill.className = 'pill p-' + o.outcome; pill.textContent = LABEL[o.outcome] || o.outcome;
-      row.append(title, when, pill); list.appendChild(row);
+    return result;
+  }
+  function remainder(data, div) {
+    const result = div.map(() => 0);
+    for (const b of data) {
+      const factor = b ^ result.shift();
+      result.push(0);
+      div.forEach((coef, i) => { result[i] ^= multiply(coef, factor); });
     }
+    return result;
   }
 
-  const EVENT = { asked: 'Asked', approved: 'Approved', rejected: 'Said no', forgotten: 'Forgotten', paused: 'Paused', resumed: 'Resumed' };
-  const hh = h => h == null ? '–' : String(h).padStart(2, '0') + ':00';
-  function learning() {
-    const list = $('learning'); if (!list) return; list.innerHTML = '';
-    const st = state.stats || {};
-    $('learn-stats').textContent = 'first-nudge Done ' + (st.first_nudge_done_rate == null ? '–' : st.first_nudge_done_rate + '%') +
-      ' · default ' + hh(st.learned_hour || 10);
-    const rows = (state.learning_log || []).slice(0, 3);
-    if (!rows.length) {
-      const e = document.createElement('div'); e.className = 'empty';
-      e.textContent = 'Nothing learned yet. Wazy asks before changing your default nudge time.';
-      list.appendChild(e); return;
-    }
-    for (const r of rows) {
-      const row = document.createElement('div'); row.className = 'row';
-      const title = document.createElement('div'); title.className = 'title'; title.textContent = 'Default hour ' + hh(r.old_hour) + ' → ' + hh(r.new_hour);
-      const when = document.createElement('div'); when.className = 'when'; when.textContent = r.created_at.slice(5, 16).replace('T', ' ');
-      const pill = document.createElement('span'); pill.className = 'pill p-' + r.event; pill.textContent = EVENT[r.event] || r.event;
-      row.append(title, when, pill); list.appendChild(row);
-    }
-  }
+  // The 8 masks: a square (x, y) is flipped when its rule is true.
+  const MASKS = [
+    (x, y) => (x + y) % 2 === 0,
+    (x, y) => y % 2 === 0,
+    (x, y) => x % 3 === 0,
+    (x, y) => (x + y) % 3 === 0,
+    (x, y) => (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0,
+    (x, y) => (x * y) % 2 + (x * y) % 3 === 0,
+    (x, y) => ((x * y) % 2 + (x * y) % 3) % 2 === 0,
+    (x, y) => ((x + y) % 2 + (x * y) % 3) % 2 === 0,
+  ];
 
-  async function refresh() {
-    try { state = await (await fetch('/api/state', { cache: 'no-store' })).json(); outcomes(); learning(); steps(); } catch (e) {}
-  }
-  let qrShown = false;
-  async function qr() {
-    if (qrShown || !window.QRCode) return;
-    try {
-      const link = (await (await fetch('/api/link')).json()).url;
-      if (link) {
-        $('qr').classList.add('on');
-        new QRCode($('qr'), { text: link, width: 176, height: 176, colorDark: '#0E2A22', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
-        $('qr-hint').textContent = 'Scan to open the chat'; qrShown = true;
+  function encode(text) {
+    // 1. Bits. Mode "byte" (0100), the length, then each byte; then the end marker and filler bytes.
+    const bytes = Array.from(new TextEncoder().encode(text));
+    let v = 1;
+    while (v <= 10 && 4 + (v < 10 ? 8 : 16) + 8 * bytes.length > dataBytes(v) * 8) v++;
+    if (v > 10) return null;
+    const bits = [];
+    const put = (value, count) => { for (let i = count - 1; i >= 0; i--) bits.push((value >>> i) & 1); };
+    put(4, 4);
+    put(bytes.length, v < 10 ? 8 : 16);
+    bytes.forEach(b => put(b, 8));
+    const capacity = dataBytes(v) * 8;
+    put(0, Math.min(4, capacity - bits.length));
+    put(0, (8 - bits.length % 8) % 8);
+    for (let pad = 0xEC; bits.length < capacity; pad ^= 0xEC ^ 0x11) put(pad, 8);
+    const data = [];
+    for (let i = 0; i < bits.length; i += 8) data.push(parseInt(bits.slice(i, i + 8).join(''), 2));
+
+    // 2. Error correction: split into blocks, add RS bytes to each, then interleave the blocks.
+    const blocks = BLOCKS[v], eccLength = ECC_PER_BLOCK[v], total = totalBytes(v);
+    const shortBlocks = blocks - total % blocks, shortLength = Math.floor(total / blocks);
+    const div = divisor(eccLength), parts = [], eccs = [];
+    for (let i = 0, k = 0; i < blocks; i++) {
+      const length = shortLength - eccLength + (i < shortBlocks ? 0 : 1);
+      parts.push(data.slice(k, k + length));
+      eccs.push(remainder(parts[i], div));
+      k += length;
+    }
+    const codewords = [];
+    for (let i = 0; i <= shortLength - eccLength; i++) parts.forEach(p => { if (i < p.length) codewords.push(p[i]); });
+    for (let i = 0; i < eccLength; i++) eccs.forEach(e => codewords.push(e[i]));
+
+    // 3. Fixed patterns. "fixed" marks squares that are not data, so the zigzag and the masks skip them.
+    const size = v * 4 + 17;
+    const dark = [], fixed = [];
+    for (let y = 0; y < size; y++) { dark.push(new Array(size).fill(false)); fixed.push(new Array(size).fill(false)); }
+    const set = (grid, x, y, on) => { grid[y][x] = on; fixed[y][x] = true; };
+    for (let i = 0; i < size; i++) { set(dark, 6, i, i % 2 === 0); set(dark, i, 6, i % 2 === 0); }     // timing lines
+    for (const [cx, cy] of [[3, 3], [size - 4, 3], [3, size - 4]]) {                                  // corner squares
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+        const x = cx + dx, y = cy + dy, ring = Math.max(Math.abs(dx), Math.abs(dy));
+        if (x >= 0 && x < size && y >= 0 && y < size) set(dark, x, y, ring !== 2 && ring !== 4);
       }
-    } catch (e) {}
-  }
-  // Shift+R clears the demo (this computer only).
-  document.addEventListener('keydown', async e => {
-    if (e.shiftKey && e.key === 'R') {
-      await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      location.reload();
     }
-  });
-  refresh(); qr(); setInterval(refresh, 1000); setInterval(steps, 250); setInterval(qr, 3000);
+    const centres = ALIGN[v], last = centres.length - 1;                                             // alignment squares
+    centres.forEach((ax, i) => centres.forEach((ay, j) => {
+      if ((i === 0 && j === 0) || (i === 0 && j === last) || (i === last && j === 0)) return;        // not on the corner squares
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) set(dark, ax + dx, ay + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+    }));
+    // Format information: level M and the mask number, with its own error correction, written twice.
+    const drawFormat = (grid, mask) => {
+      const value = (0 << 3) | mask;                       // level M is "00"
+      let rem = value;
+      for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+      const word = ((value << 10) | rem) ^ 0x5412;
+      const bit = i => ((word >>> i) & 1) === 1;
+      for (let i = 0; i <= 5; i++) set(grid, 8, i, bit(i));
+      set(grid, 8, 7, bit(6)); set(grid, 8, 8, bit(7)); set(grid, 7, 8, bit(8));
+      for (let i = 9; i < 15; i++) set(grid, 14 - i, 8, bit(i));
+      for (let i = 0; i < 8; i++) set(grid, size - 1 - i, 8, bit(i));
+      for (let i = 8; i < 15; i++) set(grid, 8, size - 15 + i, bit(i));
+      set(grid, 8, size - 8, true);                        // one square that is always dark
+    };
+    drawFormat(dark, 0);                                   // reserve the spots now; the real mask is written later
+    if (v >= 7) {                                          // version information (versions 7 and up)
+      let rem = v;
+      for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1F25);
+      const word = (v << 12) | rem;
+      for (let i = 0; i < 18; i++) {
+        const on = ((word >>> i) & 1) === 1, a = size - 11 + i % 3, b = Math.floor(i / 3);
+        set(dark, a, b, on); set(dark, b, a, on);
+      }
+    }
+
+    // 4. Zigzag: two columns at a time from the right, going up then down, skipping fixed squares.
+    let index = 0;
+    for (let right = size - 1; right >= 1; right -= 2) {
+      if (right === 6) right = 5;                          // jump over the vertical timing line
+      for (let step = 0; step < size; step++) {
+        for (let j = 0; j < 2; j++) {
+          const x = right - j, upward = ((right + 1) & 2) === 0, y = upward ? size - 1 - step : step;
+          if (!fixed[y][x] && index < codewords.length * 8) {
+            dark[y][x] = ((codewords[index >>> 3] >>> (7 - (index & 7))) & 1) === 1;
+            index++;
+          }
+        }
+      }
+    }
+
+    // 5. Try all 8 masks and keep the one with the lowest penalty score.
+    let best = null;
+    for (let m = 0; m < 8; m++) {
+      const grid = dark.map((row, y) => row.map((on, x) => (!fixed[y][x] && MASKS[m](x, y)) ? !on : on));
+      drawFormat(grid, m);
+      const score = penalty(grid);
+      if (best === null || score < best.score) best = { score: score, grid: grid };
+    }
+    return best.grid;
+  }
+
+  // Penalty rules from the standard: long runs, 2x2 blocks, finder look-alikes, and too much dark or light.
+  function penalty(grid) {
+    const size = grid.length, lines = [];
+    let score = 0, darkCount = 0;
+    for (let y = 0; y < size; y++) lines.push(grid[y].map(on => on ? '1' : '0').join(''));
+    for (let x = 0; x < size; x++) lines.push(grid.map(row => row[x] ? '1' : '0').join(''));
+    for (const line of lines) {
+      for (const run of line.match(/0{5,}|1{5,}/g) || []) score += run.length - 2;
+      score += 40 * (line.match(/(?=10111010000|00001011101)/g) || []).length;
+    }
+    for (let y = 0; y < size - 1; y++) for (let x = 0; x < size - 1; x++) {
+      const c = grid[y][x];
+      if (c === grid[y][x + 1] && c === grid[y + 1][x] && c === grid[y + 1][x + 1]) score += 3;
+    }
+    for (const row of grid) for (const on of row) if (on) darkCount++;
+    score += 10 * Math.floor(Math.abs(darkCount * 20 - size * size * 10) / (size * size));
+    return score;
+  }
+
+  return { encode: encode };
+})();
+
+// Draw the QR grid as an SVG (dark squares on white, with the 4-square quiet border scanners need).
+function drawQR(box, text) {
+  const grid = QR.encode(text);
+  if (!grid) return false;
+  const NS = 'http://www.w3.org/2000/svg', quiet = 4, full = grid.length + quiet * 2;
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + full + ' ' + full);
+  svg.setAttribute('shape-rendering', 'crispEdges');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'QR code for the chat link');
+  const background = document.createElementNS(NS, 'rect');
+  background.setAttribute('width', full);
+  background.setAttribute('height', full);
+  background.setAttribute('fill', '#ffffff');
+  let d = '';
+  grid.forEach((row, y) => row.forEach((on, x) => { if (on) d += 'M' + (x + quiet) + ' ' + (y + quiet) + 'h1v1h-1z'; }));
+  const squares = document.createElementNS(NS, 'path');
+  squares.setAttribute('d', d);
+  squares.setAttribute('fill', '#0E2A22');
+  svg.append(background, squares);
+  box.textContent = '';
+  box.appendChild(svg);
+  return true;
+}
+
+// ---------- The link box: GET /api/link -> {"url": "https://..."} (or null until a public address exists) ----------
+let linkShown = '';
+async function loadLink() {
+  let url = '';
+  try {
+    const response = await fetch('/api/link', { credentials: 'same-origin', cache: 'no-store' });
+    if (response.ok) { const body = await response.json(); url = (body && (body.url || body.link)) || ''; }
+  } catch (e) { /* keep the last link we had */ }
+  if (url && /^https?:\/\//.test(url) && url !== linkShown) {
+    linkShown = url;
+    const link = $('link');
+    link.textContent = url;
+    link.href = url;
+    link.hidden = false;
+    const hasQR = drawQR($('qr'), url);
+    $('qr').classList.toggle('none', !hasQR);
+    $('try').classList.toggle('big', !hasQR);               // no QR (very long link): show the link larger instead
+    $('link-hint').textContent = hasQR ? 'Scan the code, or type the link.' : 'Type this link on your phone.';
+  }
+  setTimeout(loadLink, linkShown ? 60000 : 5000);         // keep looking until a link appears, then check now and then
+}
+
+setInterval(drawSteps, 500);                                // keeps the "Arrives in 12 s" countdown moving
+poll();
+loadLink();
 </script>
 </body>
 </html>

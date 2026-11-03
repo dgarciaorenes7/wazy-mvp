@@ -3,107 +3,511 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0E3B2E">
 <title>Wazy</title>
 <style>
-  :root { --g:#0E3B2E; --g2:#1F7A55; --bg:#EFEAE2; --me:#D9FDD3; --ink:#111B21; --mut:#667781; }
+  /* ---- Colours: one set of tokens, swapped for dark mode. All text pairs meet WCAG AA (4.5:1). ---- */
+  :root {
+    --brand:#0E3B2E; --on-brand:#FFFFFF; --accent:#1F7A55; --on-accent:#FFFFFF;
+    --wall:#EFEAE2; --outer:#D5DBD7; --bot:#FFFFFF; --me:#D9FDD3; --ink:#111B21; --muted:#54656F;
+    --bar:#F0F2F5; --field:#FFFFFF; --line:#C9D1CC; --later:#E3EFE8; --on-later:#0E3B2E;
+    --nudge:#1F7A55; --error:#A8231A; --focus:#1A56DB; --chip:#FFFFFF;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --brand:#103B2E; --on-brand:#FFFFFF; --accent:#1F7A55; --on-accent:#FFFFFF;
+      --wall:#0B141A; --outer:#060B0E; --bot:#202C33; --me:#005C4B; --ink:#E9EDEF; --muted:#C2CDD3;
+      --bar:#1A252B; --field:#2A3942; --line:#3B4A54; --later:#2A3942; --on-later:#D9FDD3;
+      --nudge:#3FBF86; --error:#FFB4A9; --focus:#8AB4F8; --chip:#202C33;
+    }
+  }
   * { box-sizing:border-box; }
   html, body { margin:0; height:100%; }
-  body { font:16px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink);
-         display:flex; flex-direction:column; height:100vh; height:100dvh; }
-  header { background:var(--g); color:#fff; padding:calc(12px + env(safe-area-inset-top)) 14px 12px; display:flex; align-items:center; gap:10px; flex:none; }
-  body.framed header { padding-top:46px; }
-  .avatar { width:38px; height:38px; border-radius:50%; background:#fff; color:var(--g); display:grid; place-items:center; font-weight:800; font-size:18px; }
-  .name { font-weight:650; } .status { font-size:12px; opacity:.8; }
-  #log { flex:1; overflow-y:auto; padding:12px 10px 8px; display:flex; flex-direction:column; gap:6px; }
-  .msg { max-width:84%; padding:7px 10px 5px; border-radius:10px; box-shadow:0 1px .5px rgba(0,0,0,.13); white-space:pre-wrap; overflow-wrap:anywhere; }
-  .user { align-self:flex-end; background:var(--me); border-top-right-radius:3px; }
-  .bot { align-self:flex-start; background:#fff; border-top-left-radius:3px; }
-  .time { font-size:11px; color:var(--mut); text-align:right; margin-top:2px; }
-  .nudge { border-left:4px solid var(--g2); font-weight:600; }
-  .buttons { display:flex; gap:6px; margin-top:8px; }
-  .buttons button { flex:1; border:0; border-radius:8px; padding:10px 0; font:inherit; font-weight:650; font-size:15px; cursor:pointer; }
-  .done { background:var(--g2); color:#fff; } .later { background:#F0F2F5; color:var(--g); }
-  .buttons.closed { opacity:.4; pointer-events:none; }
-  #examples { display:flex; gap:6px; overflow-x:auto; padding:0 10px 8px; flex:none; }
-  #examples button { flex:none; border:1px solid #cfd8d3; background:#fff; border-radius:16px; padding:6px 11px; font:inherit; font-size:13px; color:var(--g); cursor:pointer; }
-  body.framed #examples button { font-size:12px; }
-  form { display:flex; gap:8px; padding:8px 10px calc(8px + env(safe-area-inset-bottom)); background:#F0F2F5; flex:none; }
-  input { flex:1; min-width:0; border:0; border-radius:22px; padding:11px 15px; font:inherit; font-size:16px; outline:none; }
-  form button { width:44px; height:44px; border-radius:50%; border:0; background:var(--g2); color:#fff; font-size:18px; cursor:pointer; flex:none; }
+  body { font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+         background:var(--wall); color:var(--ink); }
+  button, input { font:inherit; color:inherit; }
+  /* A clear ring for keyboard users on every control (WCAG 2.4.7). */
+  :focus-visible { outline:3px solid var(--focus); outline-offset:2px; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+
+  /* ---- Layout. Phone first: one column that fills the screen. ---- */
+  .app { display:grid; height:100vh; height:100dvh;
+         grid-template-columns:minmax(0,1fr);
+         grid-template-rows:auto auto minmax(0,1fr) auto auto;
+         grid-template-areas:"head" "up" "log" "ex" "form"; }
+  header { grid-area:head; background:var(--brand); color:var(--on-brand); display:flex; align-items:center; gap:10px;
+           padding:calc(10px + env(safe-area-inset-top)) 14px 10px; }
+  body.framed header { padding-top:46px; }     /* inside the presenter's phone frame: leave room for the notch */
+  .avatar { width:38px; height:38px; border-radius:50%; background:#fff; color:#0E3B2E; display:grid; place-items:center;
+            font-weight:800; font-size:18px; flex:none; }
+  header h1 { margin:0; font-size:17px; font-weight:650; line-height:1.2; }
+  #status { margin:0; font-size:13px; opacity:.9; }
+
+  /* Upcoming: a strip of small cards under the header on a phone, a side panel on a wide screen. */
+  #upcoming { grid-area:up; background:var(--bar); border-bottom:1px solid var(--line); padding:8px 10px; }
+  #upcoming.empty { display:none; }
+  #upcoming h2 { margin:0 0 6px 4px; font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  #upcoming-list { list-style:none; margin:0; padding:0 0 2px; display:flex; gap:8px; overflow-x:auto; }
+  #upcoming-list li { flex:none; max-width:220px; background:var(--chip); border:1px solid var(--line); border-radius:10px; padding:6px 10px; }
+  .up-title { display:block; font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .up-when { display:block; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  #upcoming-empty { margin:0; font-size:14px; color:var(--muted); }
+
+  /* The conversation. */
+  #log { grid-area:log; overflow-y:auto; padding:12px 10px 8px; display:flex; flex-direction:column; gap:6px; }
+  .msg { max-width:84%; padding:7px 10px 5px; border-radius:10px; box-shadow:0 1px .5px rgba(0,0,0,.13);
+         white-space:pre-wrap; overflow-wrap:anywhere; }
+  .msg.user { align-self:flex-end; background:var(--me); border-top-right-radius:3px; }
+  .msg.bot { align-self:flex-start; background:var(--bot); border-top-left-radius:3px; }
+  .msg.nudge { border-left:4px solid var(--nudge); font-weight:600; }
+  .time { display:block; font-size:12px; color:var(--muted); text-align:right; margin-top:2px; font-weight:400; }
+  .answer { display:flex; gap:6px; margin-top:8px; }
+  .answer button { flex:1; min-height:44px; border:0; border-radius:8px; padding:8px 12px; font-weight:650; cursor:pointer; }
+  .answer .done { background:var(--accent); color:var(--on-accent); }
+  .answer .later { background:var(--later); color:var(--on-later); }
+  .answer button:disabled { opacity:.55; cursor:progress; }
+
+  /* Example chips (only before the first message) and the composer. */
+  #examples { grid-area:ex; display:flex; gap:6px; overflow-x:auto; padding:0 10px 8px; }
+  #examples[hidden] { display:none; }
+  #examples button { flex:none; min-height:36px; border:1px solid var(--line); background:var(--chip); border-radius:18px;
+                     padding:6px 12px; font-size:14px; cursor:pointer; }
+  form { grid-area:form; background:var(--bar); padding:8px 10px calc(6px + env(safe-area-inset-bottom)); }
+  .row { display:flex; gap:8px; align-items:center; }
+  #text { flex:1; min-width:0; min-height:44px; border:1px solid var(--line); border-radius:22px; padding:10px 15px;
+          background:var(--field); font-size:16px; }   /* 16px stops iPhone zooming in on focus */
+  #text::placeholder { color:var(--muted); opacity:1; }
+  #send { flex:none; min-width:76px; min-height:44px; border:0; border-radius:22px; padding:0 16px; background:var(--accent);
+          color:var(--on-accent); font-weight:650; cursor:pointer; }
+  #send:disabled { opacity:.55; cursor:progress; }
+  .meta { display:flex; justify-content:space-between; gap:10px; min-height:18px; padding:3px 6px 0; font-size:13px; }
+  #error { color:var(--error); font-weight:600; }
+  #counter { color:var(--muted); font-variant-numeric:tabular-nums; margin-left:auto; }
+  #counter.near { color:var(--error); font-weight:600; }
+
+  /* ---- Wide screens: the chat becomes a centred window with the Upcoming panel on the right. ---- */
+  @media (min-width: 900px) {
+    body { background:var(--outer); }
+    .app { width:min(1100px, 100% - 48px); height:calc(100vh - 48px); height:calc(100dvh - 48px); margin:24px auto;
+           border-radius:14px; overflow:hidden; box-shadow:0 10px 40px rgba(0,0,0,.18); background:var(--wall);
+           grid-template-columns:minmax(0,1fr) 300px; grid-template-rows:auto minmax(0,1fr) auto auto;
+           grid-template-areas:"head head" "log up" "ex up" "form up"; }
+    #log { padding:18px 6% 10px; }
+    .msg { max-width:70%; }
+    #upcoming, #upcoming.empty { display:block; border-bottom:0; border-left:1px solid var(--line); padding:18px 16px; overflow-y:auto; }
+    #upcoming-list { flex-direction:column; overflow:visible; }
+    #upcoming-list li { max-width:none; }
+    .up-title { white-space:normal; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <div class="avatar">W</div>
-  <div><div class="name">Wazy</div><div class="status" id="status">online</div></div>
-</header>
-<div id="log" aria-live="polite"></div>
-<div id="examples"></div>
-<form id="composer" autocomplete="off">
-  <input id="text" placeholder="Text a commitment…" maxlength="300" enterkeyhint="send" aria-label="Message">
-  <button aria-label="Send">➤</button>
-</form>
+<div class="app">
+  <header>
+    <div class="avatar" aria-hidden="true">W</div>
+    <div><h1>Wazy</h1><p id="status">online</p></div>
+  </header>
+
+  <section id="upcoming" class="empty" aria-labelledby="upcoming-title">
+    <h2 id="upcoming-title">Upcoming</h2>
+    <ul id="upcoming-list"></ul>
+    <p id="upcoming-empty">Nothing scheduled yet.</p>
+  </section>
+
+  <!-- role="log" + aria-live="polite": screen readers read each new message once, without interrupting. -->
+  <main id="log" role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation with Wazy"></main>
+
+  <div id="examples" hidden></div>
+
+  <form id="composer" autocomplete="off">
+    <div class="row">
+      <label for="text" class="sr-only" id="text-label">Message</label>
+      <input id="text" type="text" maxlength="500" enterkeyhint="send" placeholder="Text a commitment…"
+             aria-describedby="error counter">
+      <button id="send" type="submit">Send</button>
+    </div>
+    <div class="meta">
+      <span id="error" role="alert"></span>
+      <span id="counter">0/500</span>
+    </div>
+  </form>
+</div>
+
 <script>
-  // Inside the presenter view the chat sits in a phone frame: leave room for the camera notch.
-  if (window.self !== window.top) document.body.classList.add('framed');
+/*
+  Wazy chat (the tester's phone).
 
-  const log = document.getElementById('log'), input = document.getElementById('text'), status = document.getElementById('status');
-  const EXAMPLES = ['Send Marta the slides in 30 seconds', 'Call the bank tomorrow 9am', 'Reply to Carlos by Thursday', 'Pay rent in 2 minutes'];
-  EXAMPLES.forEach(example => {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = example;
-    b.onclick = () => { input.value = example; input.focus(); };
-    document.getElementById('examples').appendChild(b);
+  How it works, in four parts:
+    1. Every 1.5 s it asks the server for this person's state: GET /api/state.
+    2. It draws the messages: Wazy on the left, the person on the right, Done / Later under open nudges.
+    3. Sending: POST /api/send {"text"}; tapping a button: POST /api/answer {"commitment_id", "action"}.
+    4. Buttons, placeholder and errors follow the language of Wazy's latest message (English or Spanish).
+
+  Safety rule: message text is only ever put on the page with textContent / createElement,
+  never parsed as HTML, so a message like "<img onerror=...>" shows up as plain characters.
+*/
+
+// ---------- 1. Words on the screen, in both languages ----------
+const WORDS = {
+  en: {
+    done: 'Done', later: 'Later', placeholder: 'Text a commitment…', send: 'Send', message: 'Message',
+    upcoming: 'Upcoming', nothing: 'Nothing scheduled yet.', online: 'online', typing: 'typing…',
+    offline: 'reconnecting…', today: 'Today', tomorrow: 'Tomorrow', you: 'You:', wazy: 'Wazy:',
+    conversation: 'Conversation with Wazy', characters: 'characters',
+    examples: ['Send Marta the slides in 30 seconds', 'Call the bank tomorrow at 9am',
+               'Reply to Carlos by Thursday', 'Pay the rent in 2 minutes'],
+    errors: {
+      rate_limited: 'Too many messages, wait a minute',
+      too_large: 'That message is too long',
+      forbidden: 'Access expired. Open your Wazy link again',
+      server: 'Wazy is having trouble, try again in a moment',
+      network: 'No connection, try again',
+      generic: 'Something went wrong, try again',
+    },
+  },
+  es: {
+    done: 'Hecho', later: 'Más tarde', placeholder: 'Escribe un compromiso…', send: 'Enviar', message: 'Mensaje',
+    upcoming: 'Próximos', nothing: 'Aún no hay nada programado.', online: 'en línea', typing: 'escribiendo…',
+    offline: 'reconectando…', today: 'Hoy', tomorrow: 'Mañana', you: 'Tú:', wazy: 'Wazy:',
+    conversation: 'Conversación con Wazy', characters: 'caracteres',
+    examples: ['Mandar las diapositivas a Marta en 30 segundos', 'Llamar al banco mañana a las 9',
+               'Contestar a Carlos antes del jueves', 'Pagar el alquiler en 2 minutos'],
+    errors: {
+      rate_limited: 'Demasiados mensajes, espera un minuto',
+      too_large: 'Ese mensaje es demasiado largo',
+      forbidden: 'El acceso ha caducado. Vuelve a abrir tu enlace de Wazy',
+      server: 'Wazy tiene problemas, inténtalo de nuevo en un momento',
+      network: 'Sin conexión, inténtalo de nuevo',
+      generic: 'Algo ha fallado, inténtalo de nuevo',
+    },
+  },
+};
+const DAYS = { en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], es: ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'] };
+const MONTHS = {
+  en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+  es: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic'],
+};
+const MAX_LENGTH = 500;          // the same limit the server uses
+const POLL_MS = 1500;
+
+// The page elements we use.
+const log = document.getElementById('log');
+const input = document.getElementById('text');
+const sendButton = document.getElementById('send');
+const errorLine = document.getElementById('error');
+const counter = document.getElementById('counter');
+const statusLine = document.getElementById('status');
+
+// Inside the presenter's phone frame (an iframe) the chat leaves room for the camera notch.
+if (window.self !== window.top) document.body.classList.add('framed');
+
+// Before Wazy has said anything, guess the language from the browser settings.
+let lang = (navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
+let sending = false;
+
+// ---------- 2. Talking to the server ----------
+// Same-origin requests that carry the access cookies; no caching so we always see fresh state.
+function getJSON(path) {
+  return fetch(path, { credentials: 'same-origin', cache: 'no-store' });
+}
+function postJSON(path, data) {
+  return fetch(path, {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
   });
+}
+// Read {"ok": false, "error": "<code>"} from a failed reply, if there is one.
+async function errorCode(response) {
+  try { const body = await response.json(); return body && body.error ? String(body.error) : ''; } catch (e) { return ''; }
+}
+// Turn an HTTP status or error code into one of the short messages above.
+function errorKey(status, code) {
+  if (status === 429 || code === 'rate_limited') return 'rate_limited';
+  if (status === 413 || code === 'too_large') return 'too_large';
+  if (status === 401 || status === 403 || code === 'forbidden') return 'forbidden';
+  if (status >= 500) return 'server';
+  return 'generic';
+}
 
-  let signature = '', shown = 0;
-  function render(state) {
-    const last = state.messages.length ? state.messages[state.messages.length - 1].id : 0;
-    const next = JSON.stringify([state.messages.length, last, state.open]);
-    if (next === signature) return;
-    signature = next;
-    log.innerHTML = '';
-    for (const m of state.messages) {              // all text goes in with textContent: nothing is parsed as HTML
-      const bubble = document.createElement('div');
-      bubble.className = 'msg ' + (m.role === 'user' ? 'user' : 'bot') + (m.kind === 'nudge' ? ' nudge' : '');
-      const body = document.createElement('div'); body.textContent = m.text; bubble.appendChild(body);
-      if (m.kind === 'nudge') {
-        const row = document.createElement('div');
-        row.className = 'buttons' + (state.open.includes(m.id) ? '' : ' closed');
-        [['done', '✓ Done'], ['later', 'Later']].forEach(([action, label]) => {
-          const b = document.createElement('button'); b.className = action; b.textContent = label;
-          b.onclick = () => answer(m.commitment_id, action); row.appendChild(b);
-        });
-        bubble.appendChild(row);
-      }
-      const t = document.createElement('div'); t.className = 'time'; t.textContent = (m.created_at || '').slice(11, 16);
-      bubble.appendChild(t);
+let errorTimer = null;
+function showError(key) {
+  errorLine.textContent = WORDS[lang].errors[key];
+  clearTimeout(errorTimer);
+  errorTimer = setTimeout(() => { errorLine.textContent = ''; }, 8000);   // short-lived: it clears itself
+}
+function clearError() { clearTimeout(errorTimer); errorLine.textContent = ''; }
+
+// ---------- 3. Drawing ----------
+const shown = new Map();       // message key -> its bubble on the page, so each message is drawn only once
+let lastState = null;
+
+// "2026-11-03T08:55:00Z" (UTC text from the server) -> "09:55" in this phone's own time.
+function clockTime(utcText) {
+  const d = new Date(utcText);
+  if (isNaN(d)) return '';
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+// A nudge time for the Upcoming list, e.g. "Tomorrow 20:00", "Hoy 09:30:30" or "Thu 5 Nov, 10:00".
+// nudge_at_local is already in the person's zone ("2026-11-04T20:00:00", no offset).
+// To know what "today" is in that zone we use the gap between nudge_at_local and nudge_at (UTC).
+function niceWhen(local, utc) {
+  const w = WORDS[lang];
+  const at = new Date(local + 'Z');                       // read the local text as if it were UTC: no browser zone involved
+  const offset = at - new Date(utc);                      // the person's zone offset, in milliseconds
+  const now = new Date(Date.now() + offset);              // "now" on the person's clock (read with getUTC...)
+  const time = local.slice(11, 19).endsWith(':00') ? local.slice(11, 16) : local.slice(11, 19);
+  if (isNaN(at) || isNaN(offset)) return local.replace('T', ' ');
+  const dayNumber = d => Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 86400000);
+  const gap = dayNumber(at) - dayNumber(now);
+  if (gap === 0) return w.today + ' ' + time;
+  if (gap === 1) return w.tomorrow + ' ' + time;
+  const year = at.getUTCFullYear() !== now.getUTCFullYear() ? ' ' + at.getUTCFullYear() : '';
+  return DAYS[lang][at.getUTCDay()] + ' ' + at.getUTCDate() + ' ' + MONTHS[lang][at.getUTCMonth()] + year + ', ' + time;
+}
+
+// One chat bubble. Every piece of text goes in through textContent.
+function makeBubble(m) {
+  const mine = m.role === 'user';
+  const bubble = document.createElement('div');
+  bubble.className = 'msg ' + (mine ? 'user' : 'bot') + (m.kind === 'nudge' ? ' nudge' : '');
+  if (!mine && (m.lang === 'en' || m.lang === 'es')) bubble.lang = m.lang;   // screen readers pronounce Spanish right
+
+  const who = document.createElement('span');            // "You:" / "Wazy:" for screen readers only
+  who.className = 'sr-only who';
+  who.dataset.role = mine ? 'you' : 'wazy';
+  who.textContent = mine ? WORDS[lang].you : WORDS[lang].wazy;
+
+  const text = document.createElement('span');
+  text.textContent = m.text;
+
+  const time = document.createElement('time');
+  time.className = 'time';
+  time.dateTime = m.created_at || '';
+  time.textContent = clockTime(m.created_at);
+
+  bubble.append(who, text, time);
+  return bubble;
+}
+
+// Done / Later under a nudge that is still waiting for an answer.
+function makeButtons(m) {
+  const row = document.createElement('div');
+  row.className = 'answer';
+  row.dataset.lang = lang;
+  for (const action of ['done', 'later']) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = action;
+    button.textContent = WORDS[lang][action];
+    button.addEventListener('click', () => answer(m.commitment_id, action, row));
+    row.appendChild(button);
+  }
+  return row;
+}
+
+// Show the buttons only while the message id is in state.open (and redraw them if the language changed).
+function syncButtons(bubble, m, isOpen) {
+  let row = bubble.querySelector('.answer');
+  if (row && (!isOpen || row.dataset.lang !== lang)) { row.remove(); row = null; }
+  if (isOpen && !row) bubble.insertBefore(makeButtons(m), bubble.querySelector('.time'));
+}
+
+// The language of the page = the language of Wazy's latest message.
+function pickLanguage(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role !== 'user' && (messages[i].lang === 'en' || messages[i].lang === 'es')) return messages[i].lang;
+  }
+  return lang;
+}
+
+// Put the fixed words (placeholder, Send, Upcoming...) in the current language.
+function applyLanguage() {
+  const w = WORDS[lang];
+  document.documentElement.lang = lang;
+  input.placeholder = w.placeholder;
+  sendButton.textContent = w.send;
+  document.getElementById('text-label').textContent = w.message;
+  document.getElementById('upcoming-title').textContent = w.upcoming;
+  document.getElementById('upcoming-empty').textContent = w.nothing;
+  log.setAttribute('aria-label', w.conversation);
+  for (const who of log.querySelectorAll('.who')) who.textContent = who.dataset.role === 'you' ? w.you : w.wazy;
+  setStatus(statusLine.dataset.state || 'online');
+  updateCounter();
+  drawExamples();
+}
+
+function setStatus(state) {
+  statusLine.dataset.state = state;
+  statusLine.textContent = WORDS[lang][state];
+}
+
+// Example chips: shown only until the person has sent their first message. Tapping one fills the box.
+let examplesFor = '';
+function drawExamples() {
+  const box = document.getElementById('examples');
+  const firstTime = lastState !== null && !lastState.messages.some(m => m.role === 'user');
+  box.hidden = !firstTime;
+  if (!firstTime || examplesFor === lang) return;
+  examplesFor = lang;
+  box.textContent = '';                                   // removes the old chips (no HTML is parsed)
+  for (const example of WORDS[lang].examples) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.textContent = example;
+    chip.addEventListener('click', () => { input.value = example; updateCounter(); input.focus(); });
+    box.appendChild(chip);
+  }
+}
+
+// The small Upcoming list: commitments still "scheduled", soonest first.
+let upcomingKey = '';
+function drawUpcoming(commitments) {
+  const items = (commitments || [])
+    .filter(c => c.status === 'scheduled')
+    .sort((a, b) => String(a.nudge_at).localeCompare(String(b.nudge_at)))
+    .slice(0, 5);
+  const key = lang + JSON.stringify(items.map(c => [c.id, c.title, c.nudge_at, c.nudge_at_local])) + new Date().getDate();
+  if (key === upcomingKey) return;                          // nothing changed: leave the list alone
+  upcomingKey = key;
+  const list = document.getElementById('upcoming-list');
+  list.textContent = '';
+  for (const c of items) {
+    const li = document.createElement('li');
+    const title = document.createElement('span');
+    title.className = 'up-title';
+    title.textContent = c.title;
+    const when = document.createElement('span');
+    when.className = 'up-when';
+    when.textContent = niceWhen(String(c.nudge_at_local || ''), String(c.nudge_at || ''));
+    li.append(title, when);
+    list.appendChild(li);
+  }
+  document.getElementById('upcoming').classList.toggle('empty', items.length === 0);
+  document.getElementById('upcoming-empty').hidden = items.length > 0;
+}
+
+// Draw a fresh state from the server. New messages are added at the bottom; old ones stay as they are.
+function render(state) {
+  const messages = Array.isArray(state.messages) ? state.messages : [];
+  const open = Array.isArray(state.open) ? state.open : [];
+  const firstDraw = lastState === null;
+  lastState = { messages: messages };
+
+  // Were we at the bottom of the conversation before this update? Then we stay at the bottom.
+  const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+
+  const newLang = pickLanguage(messages);
+  if (newLang !== lang || firstDraw) { lang = newLang; applyLanguage(); }
+  drawUpcoming(state.commitments);                          // first, because it changes the height of the conversation
+  drawExamples();
+
+  // A message is known by its id and time, so a reset (ids starting again) is noticed too.
+  const keys = new Set(messages.map(m => m.id + '|' + m.created_at));
+  for (const [key, bubble] of shown) {
+    if (!keys.has(key)) { bubble.remove(); shown.delete(key); }   // gone from the server (reset, or older than 200)
+  }
+  let newest = null;
+  for (const m of messages) {
+    const key = m.id + '|' + m.created_at;
+    if (!shown.has(key)) {
+      const bubble = makeBubble(m);
       log.appendChild(bubble);
+      shown.set(key, bubble);
+      newest = m;
     }
-    if (state.messages.length > shown) {
-      const newest = state.messages[state.messages.length - 1];
-      if (shown && newest.kind === 'nudge' && navigator.vibrate) navigator.vibrate([200, 100, 200]);
-      log.scrollTop = log.scrollHeight;
-    }
-    shown = state.messages.length;
+    syncButtons(shown.get(key), m, open.includes(m.id));
   }
 
-  async function post(path, data) {
-    return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-  }
-  async function refresh() {
-    try { const r = await fetch('api/state', { cache: 'no-store' }); if (r.ok) render(await r.json()); } catch (e) {}
-  }
-  async function answer(commitment_id, action) { await post('api/answer', { commitment_id, action }); refresh(); }
+  // Follow the conversation down, unless the person scrolled up to read something older.
+  if (firstDraw || nearBottom || (newest && newest.role === 'user')) log.scrollTop = log.scrollHeight;
+  if (newest && !firstDraw && newest.kind === 'nudge' && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+}
 
-  document.getElementById('composer').onsubmit = async event => {
-    event.preventDefault();
-    const text = input.value.trim(); if (!text) return;
-    input.value = ''; status.textContent = 'typing…';
-    try { await post('api/send', { text }); } catch (e) {}
-    status.textContent = 'online'; refresh();
-  };
-  refresh(); setInterval(refresh, 1500);
+// ---------- 4. Polling, sending and answering ----------
+// Each refresh gets a ticket number, so a slow old answer never overwrites a newer one.
+let ticketsAsked = 0, ticketShown = 0;
+async function refresh() {
+  const ticket = ++ticketsAsked;
+  try {
+    const response = await getJSON('/api/state');
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const state = await response.json();
+    if (ticket < ticketShown) return;
+    ticketShown = ticket;
+    render(state);
+    if (!sending) setStatus('online');
+  } catch (e) {
+    if (!sending) setStatus('offline');
+  }
+}
+
+// Ask again 1.5 s after each answer (not on a fixed timer, so requests never pile up).
+// While the tab is hidden we skip the request to save the phone's battery.
+function poll() {
+  const next = () => setTimeout(poll, POLL_MS);
+  if (document.hidden) { next(); return; }
+  refresh().finally(next);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+
+function updateCounter() {
+  const used = input.value.length;
+  counter.textContent = used + '/' + MAX_LENGTH;
+  counter.setAttribute('aria-label', used + ' / ' + MAX_LENGTH + ' ' + WORDS[lang].characters);
+  counter.classList.toggle('near', used >= MAX_LENGTH - 50);
+}
+input.addEventListener('input', updateCounter);
+
+// Send: Enter in the box (a form submit) or the Send button.
+document.getElementById('composer').addEventListener('submit', async event => {
+  event.preventDefault();
+  const text = input.value.trim();
+  if (!text || sending) return;
+  sending = true;
+  sendButton.disabled = true;
+  input.readOnly = true;                                    // read-only (not disabled) keeps the phone keyboard open
+  setStatus('typing');
+  clearError();
+  try {
+    const response = await postJSON('/api/send', { text: text.slice(0, MAX_LENGTH) });
+    if (response.ok) {
+      input.value = '';                                    // only clear the box when the message arrived
+      updateCounter();
+    } else {
+      showError(errorKey(response.status, await errorCode(response)));
+    }
+  } catch (e) {
+    showError('network');
+  }
+  sending = false;
+  sendButton.disabled = false;
+  input.readOnly = false;
+  setStatus('online');
+  await refresh();
+  input.focus();
+});
+
+// Done / Later. A 409 means the nudge was already answered (maybe on another tab): just refresh.
+async function answer(commitmentId, action, row) {
+  for (const button of row.querySelectorAll('button')) button.disabled = true;   // no double taps
+  try {
+    const response = await postJSON('/api/answer', { commitment_id: commitmentId, action: action });
+    if (!response.ok && response.status !== 409) {
+      showError(errorKey(response.status, await errorCode(response)));
+      for (const button of row.querySelectorAll('button')) button.disabled = false;
+    }
+  } catch (e) {
+    showError('network');
+    for (const button of row.querySelectorAll('button')) button.disabled = false;
+  }
+  await refresh();
+  if (!row.isConnected) input.focus();                      // the buttons went away: put the keyboard focus somewhere useful
+}
+
+applyLanguage();
+poll();
 </script>
 </body>
 </html>
