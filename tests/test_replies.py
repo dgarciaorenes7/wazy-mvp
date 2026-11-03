@@ -6,6 +6,7 @@ import unittest
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from wazy.intents import classify
 from wazy.replies import ENGLISH, PARAMS, SPANISH, describe_when, render
 from wazy.types import REPLY_KINDS
 
@@ -244,7 +245,8 @@ class TestConfirm(unittest.TestCase):
 
     def test_spanish_contains_title_and_when(self):
         text = render("confirm", "es", title="Llamar a mamá", when_text="mañana a las 09:00", learned=False)
-        self.assertEqual(text, "Hecho: “Llamar a mamá”. Te aviso mañana a las 09:00.")
+        self.assertEqual(text, "Apuntado: “Llamar a mamá”. Te aviso mañana a las 09:00.")
+        self.assertFalse(text.startswith("Hecho"))      # "Hecho" is the Done button, not a confirmation
 
     def test_learned_time_is_marked_in_both_languages(self):
         en = render("confirm", "en", title="Call mum", when_text="tomorrow at 18:00", learned=True)
@@ -289,7 +291,7 @@ class TestInvalidTime(unittest.TestCase):
     def test_hour_out_of_range(self):
         en, es = self.both("25:00", "hour_out_of_range")
         self.assertTrue(en.startswith("“25:00” isn't a real time."))
-        self.assertTrue(es.startswith("“25:00” no es una hora real"))
+        self.assertTrue(es.startswith("“25:00” no es una hora válida."))
         for text in (en, es):
             self.assertIn("23:59", text)
             self.assertIn("“Call mum”", text)
@@ -297,7 +299,7 @@ class TestInvalidTime(unittest.TestCase):
     def test_minute_out_of_range(self):
         en, es = self.both("9:75", "minute_out_of_range")
         self.assertIn("“9:75” isn't a real time. Minutes only go up to 59.", en)
-        self.assertIn("“9:75” no es una hora real: los minutos solo llegan hasta 59.", es)
+        self.assertIn("“9:75” no es una hora válida. Los minutos van del 00 al 59.", es)
 
     def test_ampm_conflict(self):
         en, es = self.both("13pm", "ampm_conflict")
@@ -308,7 +310,7 @@ class TestInvalidTime(unittest.TestCase):
     def test_no_such_date(self):
         en, es = self.both("31 February", "no_such_date")
         self.assertIn("“31 February” isn't a real date.", en)
-        self.assertIn("“31 February” no es una fecha real", es)
+        self.assertIn("“31 February” no es una fecha válida. Ese día no existe.", es)
 
     def test_weekday_mismatch_names_the_real_day(self):
         en, es = self.both("Monday 5 Nov", "weekday_mismatch", hint="Thursday")
@@ -318,7 +320,7 @@ class TestInvalidTime(unittest.TestCase):
     def test_weekday_mismatch_in_spanish_says_the_day_in_spanish(self):
         text = render("invalid_time", "es", title="Llamar a Ana", detail="lunes 5 de noviembre",
                       detail_code="weekday_mismatch", hint="Thursday")
-        self.assertIn("“lunes 5 de noviembre” no cuadra con el calendario: esa fecha cae en jueves.", text)
+        self.assertIn("“lunes 5 de noviembre” no cuadra con el calendario. Esa fecha cae en jueves.", text)
         self.assertIn("“Llamar a Ana”", text)
 
     def test_weekday_mismatch_without_hint_still_explains(self):
@@ -350,7 +352,7 @@ class TestInvalidTime(unittest.TestCase):
 class TestOtherTimeProblems(unittest.TestCase):
     def test_past_time_english(self):
         text = render("past_time", "en", title="Call mum", detail="yesterday")
-        self.assertTrue(text.startswith("“yesterday” has already gone."))
+        self.assertTrue(text.startswith("“yesterday” has already passed."))
         self.assertIn("When should I nudge you about “Call mum”?", text)
 
     def test_past_time_spanish(self):
@@ -376,7 +378,7 @@ class TestOtherTimeProblems(unittest.TestCase):
         self.assertIn("once per commitment", en)
         self.assertIn("“Take vitamins”", en)
         self.assertIn("“Take vitamins tomorrow at 9am”", en)
-        self.assertIn("una vez por compromiso", es)
+        self.assertIn("una vez por tarea", es)
         self.assertIn("“Tomar vitaminas”", es)
         self.assertIn("“Tomar vitaminas mañana a las 9”", es)
 
@@ -384,14 +386,14 @@ class TestOtherTimeProblems(unittest.TestCase):
         en = render("recurring_unsupported", "en", title="")
         self.assertIn("once per commitment", en)
         self.assertIn("When do you want the one nudge?", en)
-        self.assertIn("for example “call mum tomorrow at 9am”", en)
+        self.assertIn("like “call mum tomorrow at 9am”", en)
 
     def test_multiple_commitments_asks_for_one_at_a_time(self):
         en = render("multiple_commitments", "en")
         es = render("multiple_commitments", "es")
         self.assertIn("one at a time", en)
         self.assertEqual(en.count("?"), 1)
-        self.assertIn("de uno en uno", es)
+        self.assertIn("de una en una", es)
         self.assertEqual(es.count("?"), 1)
 
 
@@ -420,14 +422,14 @@ class TestNotACommitment(unittest.TestCase):
                 self.assertIn("“lista”", text)
                 self.assertIn("“cancela 2”", text)
         self.assertIn("100", render("not_commitment", "es", reason="limit"))
-        self.assertIn("mándamelo otra vez", render("not_commitment", "es", reason="edit"))
+        self.assertIn("mándamela otra vez", render("not_commitment", "es", reason="edit"))
 
     def test_injection_says_it_only_takes_commitments(self):
         en = render("injection", "en")
         es = render("injection", "es")
         self.assertTrue(en.startswith("I only take commitments"))
         self.assertIn("ignore instructions", en)
-        self.assertTrue(es.startswith("Solo apunto compromisos"))
+        self.assertTrue(es.startswith("Solo apunto tareas"))
         self.assertIn("ignoro las instrucciones", es)
 
     def test_too_long_names_the_limit(self):
@@ -450,11 +452,12 @@ class TestWelcomeAndHelp(unittest.TestCase):
     def test_welcome_explains_the_idea(self):
         en = render("welcome", "en", ai=False)
         self.assertTrue(en.startswith("Hi, I'm Wazy."))
-        self.assertIn("Done / Later", en)
+        self.assertIn("Done or Later", en)
         self.assertIn("“help”", en)
         es = render("welcome", "es", ai=False)
         self.assertTrue(es.startswith("Hola, soy Wazy."))
         self.assertIn("“ayuda”", es)
+        self.assertIn("Hecho o Más tarde", es)
 
     def test_help_lists_every_command_in_english(self):
         text = render("help", "en")
@@ -472,23 +475,22 @@ class TestWelcomeAndHelp(unittest.TestCase):
         self.assertIn("“start”", render("stopped", "en"))
         self.assertIn("“empezar”", render("stopped", "es"))
         self.assertTrue(render("started", "en").startswith("You're back on."))
-        self.assertIn("Mándame un compromiso", render("started", "es"))
+        self.assertIn("Mándame una tarea", render("started", "es"))
 
 
 class TestNudgeAndAnswers(unittest.TestCase):
     def test_nudge_on_time(self):
-        self.assertEqual(render("nudge", "en", title="Call mum", due_text=""),
-                         "⏰ Nudge: “Call mum”. Tap Done or Later.")
-        self.assertEqual(render("nudge", "es", title="Llamar a mamá", due_text=""),
-                         "⏰ Aviso: “Llamar a mamá”. Toca Hecho o Luego.")
+        self.assertEqual(render("nudge", "en", title="Call mum", due_text=""), "⏰ Nudge: “Call mum”.")
+        self.assertEqual(render("nudge", "es", title="Llamar a mamá", due_text=""), "⏰ Aviso: “Llamar a mamá”.")
 
     def test_late_nudge_says_when_it_was_due(self):
         self.assertEqual(render("nudge", "en", title="Call mum", due_text="09:00"),
-                         "⏰ Nudge: “Call mum” (due at 09:00). Tap Done or Later.")
-        self.assertIn("(previsto para las 09:00)", render("nudge", "es", title="Llamar a mamá", due_text="09:00"))
+                         "⏰ Nudge: “Call mum” (it was due at 09:00).")
+        self.assertEqual(render("nudge", "es", title="Llamar a mamá", due_text="09:00"),
+                         "⏰ Aviso: “Llamar a mamá” (era para las 09:00).")
 
     def test_late_nudge_spanish_uses_la_for_one_oclock(self):
-        self.assertIn("(previsto para la 01:30)", render("nudge", "es", title="Llamar a mamá", due_text="01:30"))
+        self.assertIn("(era para la 01:30)", render("nudge", "es", title="Llamar a mamá", due_text="01:30"))
 
     def test_done_ack_contains_title(self):
         self.assertEqual(render("done_ack", "en", title="Call mum"), "Nice, “Call mum” is done.")
@@ -498,11 +500,96 @@ class TestNudgeAndAnswers(unittest.TestCase):
         en = render("later_ack", "en", title="Call mum", when_text="tomorrow at 10:00")
         es = render("later_ack", "es", title="Llamar a mamá", when_text="mañana a las 10:00")
         self.assertEqual(en, "No problem. I'll nudge you about “Call mum” once more tomorrow at 10:00.")
-        self.assertEqual(es, "Sin problema. Te vuelvo a avisar de “Llamar a mamá” mañana a las 10:00.")
+        self.assertEqual(es, "Vale. Te aviso otra vez de “Llamar a mamá” mañana a las 10:00.")
 
     def test_no_open_nudge(self):
         self.assertIn("no nudge waiting", render("no_open_nudge", "en"))
         self.assertIn("ningún aviso", render("no_open_nudge", "es"))
+
+    def test_nudge_does_not_say_how_to_answer(self):
+        # The chat shows the buttons, and whatsapp.py adds "Reply DONE or LATER" to a plain-text nudge,
+        # so the nudge itself must not say it too.
+        for lang, params in (("en", {"title": "Call mum", "due_text": "09:00"}),
+                             ("es", {"title": "Llamar a mamá", "due_text": "09:00"})):
+            text = render("nudge", lang, **params)
+            for words in ("Done", "Later", "Hecho", "tarde", "Reply", "Responde", "Tap", "Toca"):
+                with self.subTest(lang=lang, words=words):
+                    self.assertNotIn(words, text)
+
+
+class TestSameButtonNamesEverywhere(unittest.TestCase):
+    """The buttons are "Done" / "Later" and "Hecho" / "Más tarde": in the chat, on WhatsApp and in every reply."""
+
+    def test_spanish_never_calls_later_luego(self):
+        for kind, lang, params in every_variant():
+            if lang == "es":
+                with self.subTest(kind=kind, params=params):
+                    self.assertNotIn("Luego", render(kind, lang, **params))
+
+    def test_replies_that_name_the_buttons_use_both_names(self):
+        for kind, params in (("welcome", {"ai": False}), ("help", {}),
+                             ("learning_explained", sample("learning_explained", "en"))):
+            with self.subTest(kind=kind):
+                self.assertIn("Done", render(kind, "en", **params))
+                self.assertIn("Later", render(kind, "en", **params))
+                self.assertIn("Hecho", render(kind, "es", **params))
+                self.assertIn("Más tarde", render(kind, "es", **params))
+
+    def test_the_button_words_are_understood_as_typed_answers(self):
+        for words, intent in (("Done", "done"), ("Later", "later"), ("DONE", "done"), ("LATER", "later"),
+                              ("Hecho", "done"), ("Más tarde", "later"), ("HECHO", "done"), ("MÁS TARDE", "later")):
+            with self.subTest(words=words):
+                self.assertEqual(classify(words).name, intent)
+
+    def test_spanish_confirm_does_not_start_with_a_button_name(self):
+        text = render("confirm", "es", title="Llamar a mamá", when_text="mañana a las 09:00", learned=False)
+        self.assertFalse(text.startswith(("Hecho", "Más tarde")))
+
+
+class TestCommandsWeTellPeopleToType(unittest.TestCase):
+    """Every command a reply tells people to type is read as that command (wazy/intents.py)."""
+
+    COMMANDS = {
+        "en": [("list", "list"), ("cancel 2", "cancel"), ("cancel 1", "cancel"), ("stop", "stop"),
+               ("start", "start"), ("help", "help"), ("what did you learn", "learn_what"),
+               ("forget", "learn_forget"), ("learn again", "learn_resume")],
+        "es": [("lista", "list"), ("cancela 2", "cancel"), ("cancela 1", "cancel"), ("para", "stop"),
+               ("empezar", "start"), ("ayuda", "help"), ("qué has aprendido", "learn_what"),
+               ("olvida", "learn_forget"), ("vuelve a aprender", "learn_resume")],
+    }
+
+    def test_quoted_commands_are_commands(self):
+        for lang, commands in self.COMMANDS.items():
+            for words, intent in commands:
+                with self.subTest(lang=lang, words=words):
+                    self.assertEqual(classify(words).name, intent)
+
+    def test_every_command_in_help_is_one_we_checked(self):
+        for lang, commands in self.COMMANDS.items():
+            text = render("help", lang)
+            quoted = {part.split("”")[0] for part in text.split("“")[1:]}
+            examples = {"call the bank tomorrow at 9am", "llamar al banco mañana a las 9"}
+            with self.subTest(lang=lang):
+                self.assertLessEqual(quoted - examples, {words for words, _ in commands})
+
+    def test_yes_and_no_are_understood_in_the_learning_question(self):
+        for words, intent in (("YES", "yes"), ("NO", "no"), ("SÍ", "yes")):
+            with self.subTest(words=words):
+                self.assertEqual(classify(words, learning_question=True).name, intent)
+
+
+class TestSpanishStyle(unittest.TestCase):
+    def test_tu_not_usted(self):
+        for kind, lang, params in every_variant():
+            if lang == "es":
+                with self.subTest(kind=kind):
+                    self.assertNotIn("usted", render(kind, lang, **params).lower())
+
+    def test_one_oclock_takes_la(self):
+        for kind, lang, params in every_variant():
+            if lang == "es":
+                with self.subTest(kind=kind, params=params):
+                    self.assertNotIn("las 01:", render(kind, lang, **params))
 
 
 class TestListAndCancel(unittest.TestCase):
@@ -564,7 +651,7 @@ class TestLearningReplies(unittest.TestCase):
         text = render("learning_question", "en", current_hour=10, misses=4, answered=12, best_hour=18,
                       done_at_best=3)
         self.assertIn("I nudge you at 10:00", text)
-        self.assertIn("last 12 answered nudges, 4 at 10:00 got Later or no reply", text)
+        self.assertIn("Of your last 12 nudges, 4 at 10:00 got Later or no reply", text)
         self.assertIn("ticked 3 things off around 18:00", text)
         self.assertIn("Shall I use 18:00 from now on?", text)
         self.assertIn("YES or NO", text)
@@ -573,9 +660,9 @@ class TestLearningReplies(unittest.TestCase):
         text = render("learning_question", "es", current_hour=10, misses=4, answered=12, best_hour=13,
                       done_at_best=3)
         self.assertIn("te aviso a las 10:00", text)
-        self.assertIn("De tus últimos 12 avisos respondidos, hubo 4 a las 10:00", text)
-        self.assertIn("has tocado Hecho 3 veces sobre las 13:00", text)
-        self.assertIn("¿Paso a avisarte a las 13:00 a partir de ahora?", text)
+        self.assertIn("De tus últimos 12 avisos, 4 fueron a las 10:00 y acabaron en Más tarde o sin respuesta", text)
+        self.assertIn("has respondido Hecho 3 veces sobre las 13:00", text)
+        self.assertIn("¿Te aviso a las 13:00 a partir de ahora?", text)
         self.assertIn("SÍ o NO", text)
 
     def test_approved_and_rejected_state_the_hour(self):
@@ -602,9 +689,9 @@ class TestLearningReplies(unittest.TestCase):
         es = render("learning_explained", "es", off=False, learned_hour=18, default_hour=10, done_at_current=4,
                     answered_at_current=5, evidence=EVIDENCE)
         self.assertIn("at 18:00, because you said YES", en)
-        self.assertIn("Done on 4 of 5 nudges at that hour", en)
+        self.assertIn("Done to 4 of 5 nudges at that hour", en)
         self.assertIn("a las 18:00, porque me dijiste que SÍ", es)
-        self.assertIn("Hecho en 4 de 5 avisos a esa hora", es)
+        self.assertIn("Hecho a 4 de 5 avisos a esa hora", es)
         self.assertNotIn("most often", en)    # best hour is the hour in use, so it is not repeated
 
     def test_explained_with_the_default_hour_shows_the_best_hour(self):
@@ -613,7 +700,7 @@ class TestLearningReplies(unittest.TestCase):
         es = render("learning_explained", "es", off=False, learned_hour=None, default_hour=10, done_at_current=1,
                     answered_at_current=5, evidence=EVIDENCE)
         self.assertIn("at 10:00 (my default)", en)
-        self.assertIn("Done on 1 of 5 nudges", en)
+        self.assertIn("Done to 1 of 5 nudges", en)
         self.assertIn("most often around 18:00 (4 times)", en)
         self.assertIn("“forget”", en)
         self.assertIn("a las 10:00 (mi hora por defecto)", es)
@@ -623,18 +710,19 @@ class TestLearningReplies(unittest.TestCase):
     def test_explained_counts_use_singular_for_one(self):
         en = render("learning_explained", "en", off=False, learned_hour=None, default_hour=10, done_at_current=1,
                     answered_at_current=1, evidence={"best_hour": 18, "done_at_best": 1})
-        self.assertIn("Done on 1 of 1 nudge at that hour", en)
+        self.assertIn("Done to 1 of 1 nudge at that hour", en)
         self.assertIn("(1 time)", en)
 
     def test_explained_with_no_evidence(self):
         text = render("learning_explained", "en", off=False, learned_hour=None, default_hour=10, done_at_current=0,
                       answered_at_current=0, evidence={})
-        self.assertIn("Done on 0 of 0 nudges", text)
+        self.assertIn("I don't have any answers at that hour yet.", text)
+        self.assertNotIn("0 of 0", text)
         self.assertNotIn("most often", text)
 
     def test_forgotten_and_resumed(self):
-        self.assertIn("back to 10:00", render("learning_forgotten", "en", default_hour=10))
-        self.assertIn("vuelvo a las 10:00", render("learning_forgotten", "es", default_hour=10))
+        self.assertIn("I'll nudge you at 10:00 again", render("learning_forgotten", "en", default_hour=10))
+        self.assertIn("te avisaré otra vez a las 10:00", render("learning_forgotten", "es", default_hour=10))
         self.assertIn("“vuelve a aprender”", render("learning_forgotten", "es", default_hour=10))
         self.assertIn("ask before changing anything", render("learning_resumed", "en"))
         self.assertIn("antes de cambiar nada", render("learning_resumed", "es"))

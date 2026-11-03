@@ -252,7 +252,7 @@ class ChatPage(unittest.TestCase):
         keys = lambda block: set(re.findall(r"(?:^|[{,])\s*(\w+):\s*['\[{]", block, re.M))
         self.assertGreaterEqual(len(keys(en)), 20)
         self.assertEqual(keys(en), keys(es))
-        for spanish in ("'Hecho'", "'Más tarde'", "'Enviar'", "'Escribe un compromiso…'", "'Próximos'"):
+        for spanish in ("'Hecho'", "'Más tarde'", "'Enviar'", "'Escribe algo que tengas que hacer…'", "'Próximos'"):
             self.assertIn(spanish, es)
         for english in ("'Done'", "'Later'", "'Send'", "'Text a commitment…'", "'Upcoming'"):
             self.assertIn(english, en)

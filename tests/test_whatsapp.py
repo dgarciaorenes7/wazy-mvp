@@ -560,7 +560,7 @@ class DeliveryTests(Base):
         cid = self.add_commitment("Llamar a mamá")
         self.queue("Es la hora de “Llamar a mamá”.", kind="nudge", lang="es", commitment_id=cid)
         self.wa.deliver_due()
-        self.assertTrue(self.opener.forms()[0]["Body"].endswith("\n\nResponde HECHO o LUEGO"))
+        self.assertTrue(self.opener.forms()[0]["Body"].endswith("\n\nResponde HECHO o MÁS TARDE"))
 
     def test_other_kinds_get_no_suffix(self):
         self.queue("Done. Nice one.", kind="done_ack")

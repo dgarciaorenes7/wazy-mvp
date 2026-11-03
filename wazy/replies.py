@@ -187,19 +187,20 @@ def en_ask_when(title: str) -> str:
 def en_welcome(ai: bool) -> str:
     parts = [
         "Hi, I'm Wazy. Text me a small commitment in your own words, like “send Marta the slides by Thursday”. "
-        "I'll confirm in one line when I'll nudge you, then nudge you once at that time with Done / Later.",
+        "I'll tell you exactly when I'll nudge you. Then I nudge you once, at that time, and you answer "
+        "Done or Later.",
         "I also notice when you usually tick things off, so I can suggest a better time. "
         "I always ask before changing anything.",
     ]
     if ai:
         parts.append("An AI (Anthropic's Claude) only tidies the wording of your task. Code decides the time.")
-    parts.append("Text “help” to see the commands, or “stop” any time.")
+    parts.append("Text “help” for the commands, or “stop” to stop all nudges.")
     return "\n\n".join(parts)
 
 
 EN_HELP = (
-    "I'm Wazy. Text me one commitment per message, like “call the bank tomorrow at 9am”, and I'll nudge you "
-    "once at that time with Done / Later.\n"
+    "I'm Wazy. Text me one commitment per message, like “call the bank tomorrow at 9am”. I'll nudge you once "
+    "at that time, and you answer Done or Later.\n\n"
     "Commands:\n"
     "• “list”: see what's coming up\n"
     "• “cancel 2”: cancel number 2 on your list\n"
@@ -214,7 +215,7 @@ EN_INVALID = {
     "hour_out_of_range": "{what} isn't a real time. A day only goes up to 23:59.",
     "minute_out_of_range": "{what} isn't a real time. Minutes only go up to 59.",
     "ampm_conflict": "{what} isn't a real time. With am or pm, the hour goes from 1 to 12.",
-    "no_such_date": "{what} isn't a real date. That day doesn't exist in the calendar.",
+    "no_such_date": "{what} isn't a real date. That day doesn't exist.",
     "weekday_mismatch": "{what} doesn't match the calendar: that date is a {hint}.",
 }
 EN_INVALID_OTHER = "{what} isn't a time I can use."
@@ -228,23 +229,23 @@ def en_invalid_time(title: str, detail: str, detail_code: str, hint: str) -> str
 
 def en_past_time(title: str, detail: str) -> str:
     what = quote(detail) if detail else "That time"
-    return f"{what} has already gone. {en_ask_when(title)}"
+    return f"{what} has already passed. {en_ask_when(title)}"
 
 
 def en_recurring(title: str) -> str:
     if title:
         return (f"I can only nudge you once per commitment, so I can't repeat {quote(title)}. "
-                f"When do you want the one nudge? Send it again with one time, for example "
+                f"When do you want the one nudge? Send it again with one time, like "
                 f"“{title} tomorrow at 9am”.")
-    return ("I can only nudge you once per commitment, not on repeat. When do you want the one nudge? "
-            "Send the task with one time, for example “call mum tomorrow at 9am”.")
+    return ("I can only nudge you once per commitment, so I can't repeat a nudge. When do you want the one "
+            "nudge? Send the task with one time, like “call mum tomorrow at 9am”.")
 
 
 EN_NOT_COMMITMENT = {
     "question": "I can't answer questions yet. I only take commitments, one per message, like “send Marta the "
                 "slides by Thursday”. Text “list” to see what's coming up, or “cancel 2” to cancel one.",
-    "edit": "I can't change a commitment once it's set. To change a time, cancel it and send it again: text "
-            "“list”, then “cancel 2” (using its number), then send the commitment with the new time.",
+    "edit": "I can't change a commitment once it's set. To change the time, cancel it and send it again: text "
+            "“list”, then “cancel 2” (with its number), then send the commitment with the new time.",
     "limit": "You already have 100 upcoming commitments, the most I can keep. Text “list” to see them, "
              "or “cancel 2” to make room for a new one.",
 }
@@ -268,8 +269,8 @@ def en_cancel_which(items) -> str:
 
 def en_learning_question(current_hour: int, misses: int, answered: int, best_hour: int, done_at_best: int) -> str:
     now_at, best_at = hour_text(current_hour), hour_text(best_hour)
-    return (f"Quick question. When you don't give me a time I nudge you at {now_at}. Looking at your last "
-            f"{answered} answered nudges, {misses} at {now_at} got Later or no reply, and you ticked "
+    return (f"Quick question. When you don't give me a time, I nudge you at {now_at}. Of your last "
+            f"{count(answered, 'nudge', 'nudges')}, {misses} at {now_at} got Later or no reply, and you ticked "
             f"{count(done_at_best, 'thing', 'things')} off around {best_at}. Shall I use {best_at} from now on? "
             f"Times you give me yourself won't change. Reply YES or NO.")
 
@@ -277,29 +278,36 @@ def en_learning_question(current_hour: int, misses: int, answered: int, best_hou
 def en_learning_explained(off: bool, learned_hour: Optional[int], default_hour: int, done_at_current: int,
                           answered_at_current: int, evidence: dict) -> str:
     if off:
-        return (f"I'm not learning anything right now (you told me to forget). When you don't give me a time "
+        return (f"I'm not learning anything right now (you told me to forget). When you don't give me a time, "
                 f"I nudge you at {hour_text(default_hour)}. Text “learn again” to turn learning back on.")
     if learned_hour is not None:
-        first = f"When you don't give me a time I nudge you at {hour_text(learned_hour)}, because you said YES to that."
+        first = (f"When you don't give me a time, I nudge you at {hour_text(learned_hour)}, "
+                 f"because you said YES to that.")
     else:
-        first = f"When you don't give me a time I nudge you at {hour_text(default_hour)} (my default)."
-    so_far = (f" So far you've tapped Done on {done_at_current} of "
-              f"{count(answered_at_current, 'nudge', 'nudges')} at that hour.")
+        first = f"When you don't give me a time, I nudge you at {hour_text(default_hour)} (my default)."
+    if answered_at_current:
+        so_far = (f" So far you've answered Done to {done_at_current} of "
+                  f"{count(answered_at_current, 'nudge', 'nudges')} at that hour.")
+    else:
+        so_far = " I don't have any answers at that hour yet."
     best = ""
     evidence = evidence or {}
     in_use = learned_hour if learned_hour is not None else default_hour
     if evidence.get("best_hour") not in (None, in_use) and evidence.get("done_at_best"):
-        best = (f" You tap Done most often around {hour_text(evidence['best_hour'])} "
+        best = (f" You answer Done most often around {hour_text(evidence['best_hour'])} "
                 f"({count(evidence['done_at_best'], 'time', 'times')}).")
-    keep = (" What I keep: for each nudge, the hour it went out and whether you tapped Done, Later or nothing. "
-            "I never change a time you gave me, and I always ask first. Text “forget” to wipe this and stop.")
+    keep = ("\n\nWhat I keep: for each nudge, the hour it went out and whether you answered Done, Later or "
+            "nothing. I never change a time you gave me, and I always ask first. Text “forget” to wipe this "
+            "and stop learning.")
     return first + so_far + best + keep
 
 
 def en_nudge(title: str, due_text: str) -> str:
+    """The nudge itself. It does not name the buttons: the web chat shows them under the nudge, and
+    whatsapp.py adds "Reply DONE or LATER" when it sends a nudge as plain text."""
     what = f"⏰ Nudge: {quote(title)}" if title else "⏰ Nudge"
-    due = f" (due at {due_text})" if due_text else ""
-    return f"{what}{due}. Tap Done or Later."
+    due = f" (it was due at {due_text})" if due_text else ""
+    return f"{what}{due}."
 
 
 ENGLISH = {
@@ -315,11 +323,11 @@ ENGLISH = {
     "invalid_time": en_invalid_time,
     "past_time": en_past_time,
     "too_far": lambda title:
-        f"That's more than a year away, and I can only nudge you up to a year ahead. {en_ask_when(title)}",
+        f"That's more than a year away. I can only nudge you up to a year ahead. {en_ask_when(title)}",
     "recurring_unsupported": en_recurring,
     "multiple_commitments": lambda:
         "That looks like two commitments at once, and I can only take one at a time. Which one first? "
-        "Send it on its own, for example “call mum at 5pm”.",
+        "Send it on its own, like “call mum at 5pm”.",
     "not_commitment": lambda reason: EN_NOT_COMMITMENT[reason],
     "injection": lambda:
         "I only take commitments, like “call mum tomorrow at 9am”, and I ignore instructions about how I work. "
@@ -331,14 +339,14 @@ ENGLISH = {
         "Stopped. I won't send you any more nudges, and the ones coming up are off. To come back, text “start” "
         "or send me a new commitment.",
     "started": lambda:
-        "You're back on. Text me a commitment any time, for example “call mum tomorrow at 9am”.",
+        "You're back on. Text me a commitment any time, like “call mum tomorrow at 9am”.",
     "done_ack": lambda title: f"Nice, {quote(title)} is done." if title else "Nice, that's done.",
     "later_ack": lambda title, when_text: f"No problem. I'll nudge you{en_about(title)} once more {when_text}.",
     "no_open_nudge": lambda:
         "There's no nudge waiting for an answer right now. Text me a new commitment any time.",
     "list": en_list,
     "list_empty": lambda:
-        "Nothing coming up. Text me a commitment any time, for example “call mum tomorrow at 9am”.",
+        "Nothing coming up. Text me a commitment any time, like “call mum tomorrow at 9am”.",
     "cancelled": lambda title:
         f"Cancelled {quote(title)}. I won't nudge you about it." if title else
         "Cancelled. I won't nudge you about it.",
@@ -347,13 +355,15 @@ ENGLISH = {
     "pending_cancelled": lambda title: f"OK, I've dropped {quote(title)}." if title else "OK, dropped it.",
     "learning_question": en_learning_question,
     "learning_approved": lambda hour:
-        f"Done. When you don't give me a time I'll nudge you at {hour_text(hour)}. Text “forget” to undo it.",
+        f"Great. From now on, when you don't give me a time, I'll nudge you at {hour_text(hour)}. "
+        f"Text “forget” to undo this.",
     "learning_rejected": lambda hour:
         f"OK, I'll keep {hour_text(hour)}. I won't ask again for at least two weeks.",
     "learning_explained": en_learning_explained,
     "learning_forgotten": lambda default_hour:
-        f"Done. I've wiped what I learned and I'm back to {hour_text(default_hour)}. I won't learn from your "
-        f"answers again unless you text “learn again”. Your commitments and nudges are unchanged.",
+        f"OK, I've wiped what I learned. When you don't give me a time, I'll nudge you at "
+        f"{hour_text(default_hour)} again. I'll stop learning from your answers until you text “learn again”. "
+        f"Your commitments stay as they are.",
     "learning_resumed": lambda:
         "OK, I'll start noticing when you tick things off again. I'll still ask before changing anything.",
     "rate_limited": lambda: "You're sending messages very fast. Give me a minute, then try again.",
@@ -362,6 +372,8 @@ ENGLISH = {
 
 
 # ==== SPANISH ===================================================================================
+# "Tarea" is the thing to do (not "compromiso", which in Spain sounds like a social engagement) and "aviso"
+# is the nudge. The buttons are "Hecho" and "Más tarde", the same words as in the chat and on WhatsApp.
 
 def es_de(title: str) -> str:
     """' de “Llamar a mamá”', or nothing when there is no title."""
@@ -375,37 +387,38 @@ def es_ask_when(title: str) -> str:
 
 def es_welcome(ai: bool) -> str:
     parts = [
-        "Hola, soy Wazy. Mándame un pequeño compromiso con tus palabras, por ejemplo “mandar las diapositivas "
-        "a Marta el jueves”. Te confirmo en una línea cuándo te aviso, y a esa hora te aviso una sola vez con "
-        "Hecho / Luego.",
+        "Hola, soy Wazy. Escríbeme algo que tengas que hacer, con tus palabras, por ejemplo “mandar las "
+        "diapositivas a Marta el jueves”. Te confirmo la hora exacta del aviso. A esa hora te aviso una sola "
+        "vez y me respondes Hecho o Más tarde.",
         "También me fijo en cuándo sueles marcar las cosas como hechas, para proponerte una hora mejor. "
         "Siempre te pregunto antes de cambiar nada.",
     ]
     if ai:
-        parts.append("Una IA (Claude, de Anthropic) solo ordena la redacción de tu tarea. La hora la decide el código.")
-    parts.append("Escribe “ayuda” para ver los comandos, o “para” cuando quieras que deje de avisarte.")
+        parts.append("Una IA (Claude, de Anthropic) solo retoca cómo está escrita tu tarea. "
+                     "La hora la decide el código.")
+    parts.append("Escribe “ayuda” para ver los comandos, o “para” si quieres que deje de avisarte.")
     return "\n\n".join(parts)
 
 
 ES_HELP = (
-    "Soy Wazy. Mándame un compromiso por mensaje, por ejemplo “llamar al banco mañana a las 9”, y te aviso "
-    "una vez a esa hora con Hecho / Luego.\n"
+    "Soy Wazy. Mándame una tarea por mensaje, por ejemplo “llamar al banco mañana a las 9”. Te aviso una vez "
+    "a esa hora y me respondes Hecho o Más tarde.\n\n"
     "Comandos:\n"
     "• “lista”: ver lo que tienes pendiente\n"
     "• “cancela 2”: cancelar el número 2 de tu lista\n"
     "• “para”: dejar de recibir avisos\n"
     "• “empezar”: volver a recibir avisos\n"
-    "• “qué has aprendido”: ver qué he notado sobre tus horarios\n"
-    "• “olvida”: borrar lo aprendido y dejar de aprender"
+    "• “qué has aprendido”: ver qué sé de tus horarios\n"
+    "• “olvida”: borrar lo que he aprendido y dejar de aprender"
 )
 
 # Qué ha fallado con la hora, según detail_code. {what} son las palabras de la persona entre comillas.
 ES_INVALID = {
-    "hour_out_of_range": "{what} no es una hora real: el día solo llega hasta las 23:59.",
-    "minute_out_of_range": "{what} no es una hora real: los minutos solo llegan hasta 59.",
-    "ampm_conflict": "{what} no es una hora real: con am o pm, la hora va del 1 al 12.",
-    "no_such_date": "{what} no es una fecha real: ese día no existe en el calendario.",
-    "weekday_mismatch": "{what} no cuadra con el calendario: esa fecha cae en {hint}.",
+    "hour_out_of_range": "{what} no es una hora válida. El día solo llega hasta las 23:59.",
+    "minute_out_of_range": "{what} no es una hora válida. Los minutos van del 00 al 59.",
+    "ampm_conflict": "{what} no es una hora válida. Con am o pm, la hora va del 1 al 12.",
+    "no_such_date": "{what} no es una fecha válida. Ese día no existe.",
+    "weekday_mismatch": "{what} no cuadra con el calendario. Esa fecha cae en {hint}.",
 }
 ES_INVALID_OTHER = "{what} no es una hora que pueda usar."
 
@@ -427,21 +440,21 @@ def es_past_time(title: str, detail: str) -> str:
 
 def es_recurring(title: str) -> str:
     if title:
-        return (f"Solo puedo avisarte una vez por compromiso, así que no puedo repetir {quote(title)}. "
-                f"¿Cuándo quieres el aviso? Mándamelo otra vez con una sola hora, por ejemplo "
+        return (f"Solo te aviso una vez por tarea, así que no puedo repetir {quote(title)}. "
+                f"¿Cuándo quieres el aviso? Mándame la tarea otra vez con una sola hora, por ejemplo "
                 f"“{title} mañana a las 9”.")
-    return ("Solo puedo avisarte una vez por compromiso, no de forma repetida. ¿Cuándo quieres el aviso? "
+    return ("Solo te aviso una vez por tarea, así que no puedo repetir avisos. ¿Cuándo quieres el aviso? "
             "Mándame la tarea con una sola hora, por ejemplo “llamar a mamá mañana a las 9”.")
 
 
 ES_NOT_COMMITMENT = {
-    "question": "Todavía no sé responder preguntas. Solo apunto compromisos, uno por mensaje, por ejemplo "
+    "question": "Todavía no sé responder preguntas. Solo apunto tareas, una por mensaje, por ejemplo "
                 "“mandar las diapositivas a Marta el jueves”. Escribe “lista” para ver lo que tienes pendiente, "
-                "o “cancela 2” para cancelar uno.",
-    "edit": "No puedo cambiar un compromiso ya apuntado. Para cambiar la hora, cancélalo y mándamelo otra vez: "
-            "escribe “lista”, luego “cancela 2” (con su número) y después el compromiso con la hora nueva.",
-    "limit": "Ya tienes 100 compromisos pendientes, que es lo máximo que puedo guardar. Escribe “lista” para "
-             "verlos, o “cancela 2” para hacer hueco a uno nuevo.",
+                "o “cancela 2” para cancelar una.",
+    "edit": "No puedo cambiar una tarea ya apuntada. Para cambiar la hora, cancélala y mándamela otra vez: "
+            "escribe “lista”, luego “cancela 2” (con su número) y después la tarea con la hora nueva.",
+    "limit": "Ya tienes 100 tareas pendientes, que es lo máximo que puedo guardar. Escribe “lista” para "
+             "verlas, o “cancela 2” para hacer hueco a una nueva.",
 }
 
 
@@ -464,46 +477,52 @@ def es_cancel_which(items) -> str:
 
 def es_learning_question(current_hour: int, misses: int, answered: int, best_hour: int, done_at_best: int) -> str:
     now_at, best_at = hour_text(current_hour), hour_text(best_hour)
-    return (f"Una pregunta rápida. Cuando no me das hora, te aviso {es_at(now_at)}. De tus últimos {answered} "
-            f"avisos respondidos, hubo {misses} {es_at(now_at)} con Luego o sin respuesta, y has tocado Hecho "
-            f"{count(done_at_best, 'vez', 'veces')} sobre {es_the(best_at)}. ¿Paso a avisarte {es_at(best_at)} "
-            f"a partir de ahora? Las horas que me des tú no cambian. Responde SÍ o NO.")
+    return (f"Una pregunta rápida. Cuando no me das hora, te aviso {es_at(now_at)}. De tus últimos "
+            f"{count(answered, 'aviso', 'avisos')}, {misses} fueron {es_at(now_at)} y acabaron en Más tarde o "
+            f"sin respuesta, y has respondido Hecho {count(done_at_best, 'vez', 'veces')} sobre "
+            f"{es_the(best_at)}. ¿Te aviso {es_at(best_at)} a partir de ahora? Las horas que me des tú no "
+            f"cambian. Responde SÍ o NO.")
 
 
 def es_learning_explained(off: bool, learned_hour: Optional[int], default_hour: int, done_at_current: int,
                           answered_at_current: int, evidence: dict) -> str:
     if off:
-        return (f"Ahora mismo no estoy aprendiendo nada (me pediste que olvidara). Cuando no me das hora, te "
-                f"aviso {es_at(hour_text(default_hour))}. Escribe “vuelve a aprender” para activarlo de nuevo.")
+        return (f"Ahora mismo no estoy aprendiendo nada (me pediste que lo olvidara). Cuando no me das hora, te "
+                f"aviso {es_at(hour_text(default_hour))}. Escribe “vuelve a aprender” para activarlo otra vez.")
     if learned_hour is not None:
         first = f"Cuando no me das hora, te aviso {es_at(hour_text(learned_hour))}, porque me dijiste que SÍ."
     else:
         first = f"Cuando no me das hora, te aviso {es_at(hour_text(default_hour))} (mi hora por defecto)."
-    so_far = (f" Hasta ahora has tocado Hecho en {done_at_current} de "
-              f"{count(answered_at_current, 'aviso', 'avisos')} a esa hora.")
+    if answered_at_current:
+        so_far = (f" Hasta ahora has respondido Hecho a {done_at_current} de "
+                  f"{count(answered_at_current, 'aviso', 'avisos')} a esa hora.")
+    else:
+        so_far = " Todavía no tengo respuestas a esa hora."
     best = ""
     evidence = evidence or {}
     in_use = learned_hour if learned_hour is not None else default_hour
     if evidence.get("best_hour") not in (None, in_use) and evidence.get("done_at_best"):
-        best = (f" Cuando más tocas Hecho es sobre {es_the(hour_text(evidence['best_hour']))} "
+        best = (f" Sueles responder Hecho sobre {es_the(hour_text(evidence['best_hour']))} "
                 f"({count(evidence['done_at_best'], 'vez', 'veces')}).")
-    keep = (" Lo que guardo: para cada aviso, la hora a la que salió y si tocaste Hecho, Luego o nada. Nunca "
-            "cambio una hora que me hayas dado y siempre te pregunto antes. Escribe “olvida” para borrarlo y "
-            "que deje de aprender.")
+    keep = ("\n\nLo que guardo: para cada aviso, la hora a la que salió y si respondiste Hecho, Más tarde o "
+            "nada. Nunca cambio una hora que me hayas dado y siempre te pregunto antes. Escribe “olvida” para "
+            "borrarlo y que deje de aprender.")
     return first + so_far + best + keep
 
 
 def es_nudge(title: str, due_text: str) -> str:
+    """El aviso. No nombra los botones: el chat los muestra debajo, y whatsapp.py añade
+    "Responde HECHO o MÁS TARDE" cuando lo manda como texto."""
     what = f"⏰ Aviso: {quote(title)}" if title else "⏰ Aviso"
-    due = f" (previsto para {es_the(due_text)})" if due_text else ""
-    return f"{what}{due}. Toca Hecho o Luego."
+    due = f" (era para {es_the(due_text)})" if due_text else ""
+    return f"{what}{due}."
 
 
 SPANISH = {
     "welcome": es_welcome,
     "help": lambda: ES_HELP,
     "confirm": lambda title, when_text, learned:
-        f"Hecho: {quote(title)}. Te aviso {when_text}{' (tu hora habitual)' if learned else ''}.",
+        f"Apuntado: {quote(title)}. Te aviso {when_text}{' (tu hora habitual)' if learned else ''}.",
     "ask_time": lambda title:
         f"¿Cuándo te aviso{es_de(title)}? Por ejemplo “en 2 horas”, “mañana a las 9” o “el viernes”.",
     "ask_what": lambda when_text:
@@ -512,45 +531,47 @@ SPANISH = {
     "invalid_time": es_invalid_time,
     "past_time": es_past_time,
     "too_far": lambda title:
-        f"Eso queda a más de un año y solo puedo avisarte hasta dentro de un año. {es_ask_when(title)}",
+        f"Eso es dentro de más de un año. Solo puedo avisarte de aquí a un año como mucho. {es_ask_when(title)}",
     "recurring_unsupported": es_recurring,
     "multiple_commitments": lambda:
-        "Eso parecen dos compromisos a la vez, y los apunto de uno en uno. ¿Cuál va primero? Mándamelo solo, "
+        "Eso parecen dos tareas a la vez, y las apunto de una en una. ¿Cuál va primero? Mándamela sola, "
         "por ejemplo “llamar a mamá a las 17:00”.",
     "not_commitment": lambda reason: ES_NOT_COMMITMENT[reason],
     "injection": lambda:
-        "Solo apunto compromisos, como “llamar a mamá mañana a las 9”, e ignoro las instrucciones sobre cómo "
+        "Solo apunto tareas, como “llamar a mamá mañana a las 9”, e ignoro las instrucciones sobre cómo "
         "funciono. ¿De qué quieres que te avise?",
     "too_long": lambda limit:
-        f"Ese mensaje pasa de {limit} caracteres y es demasiado largo para mí. ¿Me mandas solo el compromiso, "
+        f"Ese mensaje pasa de {limit} caracteres y es demasiado largo para mí. ¿Me mandas solo la tarea, "
         f"por ejemplo “llamar a mamá mañana a las 9”?",
     "stopped": lambda:
         "Vale, paro. No te mandaré más avisos y he anulado los que tenías pendientes. Cuando quieras volver, "
-        "escribe “empezar” o mándame un compromiso nuevo.",
+        "escribe “empezar” o mándame una tarea nueva.",
     "started": lambda:
-        "Ya vuelvo a avisarte. Mándame un compromiso cuando quieras, por ejemplo “llamar a mamá mañana a las 9”.",
+        "Vale, vuelvo a avisarte. Mándame una tarea cuando quieras, por ejemplo “llamar a mamá mañana a las 9”.",
     "done_ack": lambda title:
         f"¡Genial! Marcado como hecho: {quote(title)}." if title else "¡Genial! Marcado como hecho.",
-    "later_ack": lambda title, when_text: f"Sin problema. Te vuelvo a avisar{es_de(title)} {when_text}.",
+    "later_ack": lambda title, when_text: f"Vale. Te aviso otra vez{es_de(title)} {when_text}.",
     "no_open_nudge": lambda:
-        "Ahora mismo no hay ningún aviso esperando respuesta. Mándame un compromiso nuevo cuando quieras.",
+        "Ahora mismo no tienes ningún aviso por contestar. Mándame una tarea nueva cuando quieras.",
     "list": es_list,
     "list_empty": lambda:
-        "No tienes nada pendiente. Mándame un compromiso cuando quieras, por ejemplo “llamar a mamá mañana a las 9”.",
+        "No tienes nada pendiente. Mándame una tarea cuando quieras, por ejemplo “llamar a mamá mañana a las 9”.",
     "cancelled": lambda title:
-        f"Cancelado: {quote(title)}. No te avisaré." if title else "Cancelado. No te avisaré.",
+        f"He cancelado {quote(title)}. Ya no te avisaré." if title else "Cancelado. Ya no te avisaré.",
     "cancel_which": es_cancel_which,
     "nothing_to_cancel": lambda: "Ahora mismo no hay nada que cancelar.",
-    "pending_cancelled": lambda title: f"Vale, olvidado: {quote(title)}." if title else "Vale, olvidado.",
+    "pending_cancelled": lambda title: f"Vale, me olvido de {quote(title)}." if title else "Vale, olvidado.",
     "learning_question": es_learning_question,
     "learning_approved": lambda hour:
-        f"Hecho. Cuando no me des hora, te avisaré {es_at(hour_text(hour))}. Escribe “olvida” para deshacerlo.",
+        f"Perfecto. A partir de ahora, cuando no me des hora, te aviso {es_at(hour_text(hour))}. "
+        f"Escribe “olvida” para deshacerlo.",
     "learning_rejected": lambda hour:
         f"Vale, me quedo con {es_the(hour_text(hour))}. No te volveré a preguntar en al menos dos semanas.",
     "learning_explained": es_learning_explained,
     "learning_forgotten": lambda default_hour:
-        f"Hecho. He borrado lo que había aprendido y vuelvo {es_at(hour_text(default_hour))}. No volveré a "
-        f"aprender de tus respuestas salvo que escribas “vuelve a aprender”. Tus compromisos y avisos siguen igual.",
+        f"Vale, he borrado lo que había aprendido. Cuando no me des hora, te avisaré otra vez "
+        f"{es_at(hour_text(default_hour))}. Dejo de aprender de tus respuestas hasta que escribas “vuelve a "
+        f"aprender”. Tus tareas siguen igual.",
     "learning_resumed": lambda:
         "Vale, vuelvo a fijarme en cuándo marcas las cosas como hechas. Seguiré preguntándote antes de cambiar nada.",
     "rate_limited": lambda: "Me estás mandando mensajes muy rápido. Espera un minuto y vuelve a intentarlo.",

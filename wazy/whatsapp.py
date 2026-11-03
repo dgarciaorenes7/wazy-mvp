@@ -41,7 +41,7 @@ CLAIM_SECONDS = 300                          # while one sender is sending a row
 SEND_EVERY_SECONDS = 2.0                     # how often the background thread looks for due rows
 HTTP_TIMEOUT = 10.0                          # seconds to wait for Twilio before calling it a failure
 BATCH = 50                                   # at most this many rows per deliver_due() call
-NUDGE_SUFFIX = {"en": "Reply DONE or LATER", "es": "Responde HECHO o LUEGO"}   # plain-text nudges only
+NUDGE_SUFFIX = {"en": "Reply DONE or LATER", "es": "Responde HECHO o MÁS TARDE"}   # plain-text nudges only
 
 # Country code -> time zone for a NEW WhatsApp person (SPEC section 8). Anything else gets the default.
 ZONES_BY_PREFIX = {
