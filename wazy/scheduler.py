@@ -116,15 +116,20 @@ class Scheduler:
         return closed == 1
 
     def _ask_learning_question(self, user_id: str, now: datetime) -> None:
-        """Let learning.consider() decide; if it has a question, store it and deliver it."""
-        opted_out = self.db.scalar("SELECT opted_out FROM users WHERE id = ?", (user_id,))
-        if opted_out:
-            return                      # never write to someone who said STOP
-        reply = learning.consider(self.db, user_id, now)
-        if reply is None:
-            return
-        message_id = self.db.add_message(user_id, "bot", reply.text, reply.kind, reply.lang, None, now)
-        self._deliver(user_id, message_id, reply)
+        """Let learning.consider() decide; if it has a question, store it and deliver it.
+
+        All in one transaction: a STOP handled on another thread between the opted_out check and storing
+        the question would otherwise get the question written (and sent on WhatsApp) after "stopped".
+        """
+        with self.db.transaction():
+            opted_out = self.db.scalar("SELECT opted_out FROM users WHERE id = ?", (user_id,))
+            if opted_out:
+                return                  # never write to someone who said STOP
+            reply = learning.consider(self.db, user_id, now)
+            if reply is None:
+                return
+            message_id = self.db.add_message(user_id, "bot", reply.text, reply.kind, reply.lang, None, now)
+            self._deliver(user_id, message_id, reply)
 
     def _deliver(self, user_id: str, message_id: int, reply: Reply) -> None:
         """Hand a stored message to on_message. One failed delivery must not stop other people's nudges."""

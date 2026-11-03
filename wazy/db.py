@@ -208,15 +208,19 @@ class Database:
             self._depth += 1
             try:
                 yield self.conn
-            except BaseException:
-                self._depth -= 1
-                if outer:
-                    self.conn.execute("ROLLBACK")
-                raise
-            else:
-                self._depth -= 1
                 if outer:
                     self.conn.execute("COMMIT")
+            except BaseException:
+                # A COMMIT that fails (e.g. a reader in another process when WAL is not available) leaves
+                # SQLite's transaction open: without this ROLLBACK every later transaction() would fail with
+                # "cannot start a transaction within a transaction" and later writes would never be saved.
+                # On some errors (disk full) SQLite has already rolled back by itself: a second ROLLBACK
+                # would raise "no transaction is active" and hide the real error, hence in_transaction.
+                if outer and self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+            finally:
+                self._depth -= 1
 
     def close(self) -> None:
         with self.lock:

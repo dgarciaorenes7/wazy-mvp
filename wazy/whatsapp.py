@@ -251,9 +251,15 @@ class WhatsApp:
 
     def _send_row(self, db: Any, outbox_id: int) -> bool:
         """Send one claimed row and record what happened. True if Twilio accepted it."""
-        row = db.one("SELECT o.id, o.user_id, o.attempts, m.text, m.kind, m.lang, c.title "
-                     "FROM outbox o JOIN messages m ON m.id = o.message_id "
+        row = db.one("SELECT o.id, o.user_id, o.attempts, m.text, m.kind, m.lang, c.title, "
+                     "c.status AS commitment_status FROM outbox o JOIN messages m ON m.id = o.message_id "
                      "LEFT JOIN commitments c ON c.id = m.commitment_id WHERE o.id = ?", (outbox_id,))
+        if row["kind"] == "nudge" and row["commitment_status"] not in (None, "nudged"):
+            # The nudge was closed before it went out: STOP (racing the scheduler, or while this row waited
+            # for a retry), cancel, a typed "done", or 24 h with no reply. Sending it now would nudge
+            # someone who said STOP, with buttons that no longer work. Never sent, so "failed".
+            db.execute("UPDATE outbox SET status = 'failed', last_error = 'closed' WHERE id = ?", (outbox_id,))
+            return False
         try:
             provider_sid = self._post(self.fields_for(row))
         except SendFailed as failure:
