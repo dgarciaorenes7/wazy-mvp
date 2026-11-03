@@ -142,6 +142,8 @@ CANCEL_PENDING_PHRASES = phrases(
     "da igual", "déjalo", "olvídalo", "nada",
 )
 
+PENDING_FORGET_WORDS = phrases("forget", "olvida")
+
 # Only while Wazy's learning question is open. Any mix of these words counts ("sí, vale").
 YES_WORDS = phrases("yes", "y", "yep", "yeah", "yup", "sure", "ok", "okay", "sí", "si", "vale", "dale",
                     "claro", "venga")
@@ -280,6 +282,10 @@ def match_command(message: str, words: List[str], pending: bool, learning_questi
 
     # Try the message as typed, then without the polite words around it.
     forms = [" ".join(words), " ".join(core)]
+    # While Wazy waits for a missing time, a bare "forget" / "olvida" most likely means "forget this one",
+    # so it drops the wait instead of wiping what Wazy learned (that is harder to undo).
+    if pending and any(form in PENDING_FORGET_WORDS for form in forms):
+        return Intent("cancel_pending")
     for name, table in COMMAND_TABLES:
         if asking and name not in QUESTION_SHAPED_COMMANDS:
             continue

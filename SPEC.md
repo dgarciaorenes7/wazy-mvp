@@ -369,7 +369,8 @@ sick on Monday" are `text`. `edit` needs an object that is the reminder itself: 
 reminder, my reminder, the last one ("move the car tomorrow" is `text`; "move it to 5" is `edit`); Spanish
 `cámbialo`, `muévelo`, `aplázalo`, `pospónlo`, `cambia la hora`, `cambia el recordatorio`, `mueve el
 recordatorio`. `cancel` alone is always `cancel` (the conversation handles a pending wait); the other
-`cancel_pending` words only while `pending=True`.
+`cancel_pending` words only while `pending=True`. A bare `forget` / `olvida` while `pending=True` is `cancel_pending` (it drops the
+wait instead of wiping what Wazy learned).
 
 A question that clearly contains a commitment with a time ("can you remind me to call mum at 5?") is `text`:
 rule of thumb, "remind me"/"recuérdame" anywhere means `text` unless it is an injection.

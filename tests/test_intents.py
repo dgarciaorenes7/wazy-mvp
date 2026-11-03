@@ -80,7 +80,10 @@ class TestSpecCommandWords(IntentTestCase):
             for word in words:
                 for form in variants(word):
                     for flags in FLAG_COMBINATIONS:
-                        self.check(form, name, **flags)
+                        expected = name
+                        if flags["pending"] and word in ("forget", "olvida"):
+                            expected = "cancel_pending"     # lead decision: drops the wait, keeps learning
+                        self.check(form, expected, **flags)
 
     def test_commands_with_polite_words_around_them(self):
         cases = [
