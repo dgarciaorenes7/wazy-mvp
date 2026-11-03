@@ -140,6 +140,7 @@ def answer(db, user_id, yes: bool, now) -> Reply      # learning_approved / lear
 def explain(db, user_id) -> Reply                     # learning_explained
 def forget(db, user_id, now) -> Reply                 # learning_forgotten
 def resume(db, user_id, now) -> Reply                 # learning_resumed
+def usual_hour(user: dict) -> int                    # learned hour if valid (08..21), else DEFAULT_HOUR
 ```
 Replies are rendered in the user's saved `lang`. The hour of a nudge is the hour of `scheduled_for` in the
 person's zone. Only nudges whose commitment `time_source` is "default" or "learned" count at the current hour.
