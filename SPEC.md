@@ -363,6 +363,30 @@ Messages and titles (5, 4):
   so `ask_time` again), not `no_open_nudge`.
 - Language: `me` counts for neither language (it is common in both).
 
+### 3.7 Reminder clauses and the red line (Session 8 error analysis, 9 Nov 2026)
+
+Found by running 15 cases, 10 of them real messages from David's six months on the old Wazy: the time of the
+thing and the nudge time in one message was the most common reason a case failed (5 of the 9 failing cases).
+- A **reminder clause** is reminder words (`with a reminder`, `remind me`, `nudge me`, `notify me`, `ping me`,
+  `con un recordatorio`, `avísame`, `recuérdame`, optionally `about it`) followed by either an offset or a time of
+  its own. The rest of the message, with the clause blanked out, gives the time of the thing.
+- Offsets: `N minutes / hours / days / weeks before`, `half an hour before`, `the day before` (optionally with its
+  own clock: `the day before at 5pm`), `the night before` (21:00), `the evening before` (19:00), `la víspera`,
+  `el día antes`, `media hora antes`, and `at that time` / `a esa hora` (the nudge is at the time of the thing).
+  `The day before` with no clock keeps the time of day of the thing when it was stated, else the default hour.
+- A time of its own after the reminder words counts only when the words do not start the message
+  ("Programming quiz next Friday, remind me tomorrow at 9 am"). "Remind me tomorrow at 9 to call mum" reads as before.
+- The nudge time is `stated` (a learned hour never moves it). The deadline flag of the thing is kept.
+- Two nudge times for one thing ("remind me tonight at 23:59 and tomorrow at 10:30") are `recurring`: one nudge
+  per commitment.
+- An offset with no time for the thing ("Driving exam, remind me the day before") is `none`, so Wazy asks when.
+- **The red line (Class 7, guardrail):** a nudge after the thing itself, or after its deadline, is never set. The
+  status is `invalid` with `detail_code = "after_event"`, `detail` = the nudge words, `hint` = the time of the thing.
+  A deadline with no clock ("by Friday") lasts until 23:59 that day. The reply says why and asks for a time.
+- A nudge time that has already gone is `past`.
+- **English weekday + number:** "Wednesday 18" is a date when the number is 13 to 31 and the next such day really
+  is that weekday. "Friday 5" stays a day plus a loose number (SPEC 3.2).
+
 ## 4. The title (`title.py`)
 
 1. Remove every span from `parse_time` (times, vague words, recurring phrases, invalid times, deadline words that

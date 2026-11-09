@@ -313,6 +313,13 @@ The other answers: "no" calls `answer(yes=False)`, which keeps the old hour, wri
 - A day word that is part of the task is not a time: "Friday's exam", "weekly report", "for the weekend".
 - Connector words join a time only next to the kind they introduce: "on" with a day or date, "at" with a clock time, "in" with a delay. So in "Turn the heating on at 7pm" the time is "at 7pm" and the title keeps "on".
 
+**Reminder clauses and the red line (section 5 of the file, added on 9 Nov after the Session 8 error analysis).** Real messages often give the time of the thing and when to be nudged: "Add call with Max on Wednesday at 2:30pm with a reminder half an hour before". Before, the reader either ignored "half an hour before" (and nudged at 14:30) or saw two times and said "two commitments". Now `parse_time()` first calls `read_reminder_clause()`:
+1. `find_clause()` looks for reminder words ("with a reminder", "remind me", "nudge me", "avísame") followed by an offset ("half an hour before", "the day before at 5pm", "the night before", "at that time") or by a time of its own ("remind me tomorrow at 9 am", only when those words do not start the message).
+2. `blank()` replaces the clause with spaces, so every other letter keeps its position, and the normal `Reader` reads what is left as the time of the thing.
+3. The nudge is worked out from the two: the thing minus the offset, the day before at the clock given, or the clause's own time.
+4. The red line: if the nudge would come after the thing (or after its deadline, which for "by Friday" means Friday 23:59), the answer is `invalid` with the code `after_event`, and Wazy says "A nudge “on Wednesday 18” would come after the thing itself (Tuesday 17 Nov at 23:59)..." and asks for another time. Nothing is scheduled.
+The spans cover the clause too, so `title.py` drops "with a reminder half an hour before" from the title. If no clause is found, or the rest has no time, the message is read exactly as before. Also added that day: "Wednesday 18" in English is a date when 18 cannot be a 12-hour clock hour and the 18th really is a Wednesday. Tests: `tests/test_reminder_clause.py`.
+
 **What can go wrong, and how it is protected.**
 - One piece of text read twice: `take()` refuses characters already used.
 - Money read as a time ("costs 9.50"): a check for amounts and for a time word before the number.

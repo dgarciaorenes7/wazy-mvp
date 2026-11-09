@@ -217,6 +217,9 @@ EN_INVALID = {
     "ampm_conflict": "{what} isn't a real time. With am or pm, the hour goes from 1 to 12.",
     "no_such_date": "{what} isn't a real date. That day doesn't exist.",
     "weekday_mismatch": "{what} doesn't match the calendar: that date is a {hint}.",
+    # Session 8 guardrail (the Class 7 red line): never a nudge after the thing itself or its deadline.
+    "after_event": "A nudge {what} would come after the thing itself ({hint}), and a nudge after the deadline "
+                   "is worse than no nudge. I won't set that one.",
 }
 EN_INVALID_OTHER = "{what} isn't a time I can use."
 
@@ -420,6 +423,9 @@ ES_INVALID = {
     "ampm_conflict": "{what} no es una hora válida. Con am o pm, la hora va del 1 al 12.",
     "no_such_date": "{what} no es una fecha válida. Ese día no existe.",
     "weekday_mismatch": "{what} no cuadra con el calendario. Esa fecha cae en {hint}.",
+    # Guardarraíl de la sesión 8 (la línea roja de la clase 7): nunca un aviso después de la tarea o su plazo.
+    "after_event": "Un aviso {what} llegaría después de la propia tarea ({hint}), y un aviso fuera de plazo "
+                   "es peor que ninguno. Ese no lo pongo.",
 }
 ES_INVALID_OTHER = "{what} no es una hora que pueda usar."
 

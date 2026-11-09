@@ -522,7 +522,12 @@ def parse_time(text: str, now: datetime, tz: tzinfo, default_hour: int = DEFAULT
     """Read the time in `text`, said at `now` (aware, any zone) by a person living in `tz`.
 
     result.when is aware and in `tz`, and set only when result.status is "ok".
+    A message that gives the time of the thing AND when to be nudged ("call with Max on Wednesday at 2:30pm
+    with a reminder half an hour before") is read by read_reminder_clause() first (section 5, Session 8).
     """
+    with_reminder = read_reminder_clause(text, now, tz, default_hour)
+    if with_reminder is not None:
+        return with_reminder
     return Reader(text, now, tz, default_hour).read()
 
 
@@ -654,11 +659,24 @@ class Reader:
                 self.take(piece)
         for match in WEEKDAY_NUMBER.finditer(self.low):
             spanish = match.group("wd") in SPANISH_WEEKDAYS
-            if not (spanish or match.group("suf") or match.group("the")):
+            if not (spanish or match.group("suf") or match.group("the")
+                    or self.weekday_agrees(int(match.group("d")), WEEKDAYS[match.group("wd")])):
                 continue                        # "Friday 5" in English: the 5 is not clearly a date
             piece = self.month_day_piece(match.start(), match.end(), int(match.group("d")))
             self.check_weekday(piece, WEEKDAYS[match.group("wd")])
             self.take(piece)
+
+    def weekday_agrees(self, day: int, weekday: int) -> bool:
+        """Session 8: "Wednesday 18" in English is a date when 18 cannot be an hour of a 12-hour clock (13 to
+        31) and the next 18th of a month really is a Wednesday. "Friday 5" stays a day and a loose number."""
+        if not 13 <= day <= 31:
+            return False
+        for months_ahead in range(2):
+            month_start = add_months(self.today.replace(day=1), months_ahead)
+            when = make_date(month_start.year, month_start.month, day)
+            if when is not None and when >= self.today:
+                return when.weekday() == weekday
+        return False
 
     def numbers_are_a_date(self, match: re.Match, day: int, month: int) -> bool:
         """'4/11' and the impossible '13/13' are dates; '50/50' and '24/7' are not. With a dash only a real
@@ -1194,3 +1212,192 @@ class Reader:
                 return wall
             wall += timedelta(minutes=1)        # still in the gap: try the next minute
         return wall
+
+
+
+# ---- 5. Reminder clauses (Session 8 error analysis, 9 Nov 2026) -------------------------------------------
+#
+# Real messages often say when the thing is AND when to be nudged about it:
+#   "Add call with Max on Wednesday at 2:30pm with a reminder half an hour before"   -> nudge Wed 14:00
+#   "Add Accounting Exam on 30 April at 10:45, remind me the day before at 5pm"       -> nudge 29 Apr 17:00
+#   "Cita Pasaporte on the 23 July at 11:36. Remind me the day before"                -> nudge 22 Jul 11:36
+#   "Programming quiz next Friday, remind me tomorrow at 9 am"                       -> nudge tomorrow 09:00
+# Before this section the reader saw two times and answered "two commitments", or ignored "half an hour
+# before" and nudged at the time of the event itself. Wazy still nudges once, so it uses the nudge time.
+#
+# How: find the reminder words ("with a reminder", "remind me", "nudge me", "con un recordatorio",
+# "avísame"...), read what comes right after them (an offset like "the day before", or a time of its own),
+# blank those words out, read the rest of the message as the time of the thing, then work out the nudge.
+# The spans returned cover the reminder words too, so the title module drops them.
+#
+# The red line (Class 7) is a separate guardrail at the end: a nudge that would come after the thing itself,
+# or after its deadline, is never scheduled. Wazy says why and asks for an earlier time.
+
+REMINDER_WORDS = re.compile(
+    r"(?P<lead>(?:[,.;:]\s*|\s+-\s+)?(?:\b(?:with|and|plus|y|con)\s+)?(?:\b(?:an?|un)\s+)?)"
+    r"\b(?P<kw>reminder|remind\s+me|nudge\s+me|nudge|notify\s+me|ping\s+me|alert\s+me|"
+    r"recordatorio|aviso|avisame|recuerdamelo|recuerdame)\b"
+    r"(?P<about>\s+(?:about|of|for)\s+(?:it|this|that)\b|\s+(?:de\s+ello|de\s+eso)\b)?")
+
+QUANTITY_BEFORE = (r"(?P<qty>\d+|" + one_of(list(NUMBER_WORDS) + ["a", "an", "one", "un", "una", "a couple of",
+                                                                   "un par de"]) + r")")
+OFFSET_BEFORE = re.compile(
+    r"\s*,?\s*(?:"
+    r"(?P<half>half\s+an?\s+hour|media\s+hora)"
+    r"|" + QUANTITY_BEFORE + r"\s+(?P<unit>minutes?|mins?|hours?|hrs?|horas?|minutos?|days?|dias?|weeks?|semanas?)"
+    r"|(?P<dayword>(?:the|a)\s+day|the\s+night|the\s+evening|el\s+dia|la\s+noche|la\s+tarde)"
+    r")\s+(?:before(?:hand)?|earlier|antes|anterior)\b"
+    r"|\s*,?\s*(?P<eve>la\s+vispera|the\s+previous\s+day|the\s+day\s+prior)\b"
+    r"|\s*,?\s*(?P<same>at\s+(?:that|the\s+same)\s+time|on\s+time|a\s+esa\s+hora|a\s+la\s+misma\s+hora)\b")
+SENTENCE_END = re.compile(r"[.;!?\n]")
+UNIT_SECONDS = {"minute": 60, "min": 60, "minuto": 60, "hour": 3600, "hr": 3600, "hora": 3600}
+UNIT_DAYS = {"day": 1, "dia": 1, "week": 7, "semana": 7}
+EVENING_BEFORE_HOUR = {"the night": 21, "la noche": 21, "the evening": 19, "la tarde": 19}
+
+
+@dataclass
+class Clause:
+    """Where the reminder words sit, and what they say (positions are in the original text)."""
+    spans: List[Span]                   # the reminder words, plus the offset or the nudge time's own words
+    words: str                          # the person's words for the nudge time, for a reply ("the day before")
+    offset: Optional[timedelta] = None  # "half an hour before"
+    days: int = 0                       # "the day before" = 1, "2 days before" = 2
+    hour: Optional[int] = None          # "the night before" = 21, or the clock in "the day before at 5pm"
+    minute: int = 0
+    same: bool = False                  # "with a reminder at that time"
+    own: Optional[TimeResult] = None    # "remind me tomorrow at 9 am": the nudge time read on its own
+
+
+def blank(text: str, spans: Iterable[Span]) -> str:
+    """The text with these spans replaced by spaces (same length, so every other position stays the same)."""
+    chars = list(text)
+    for start, end in spans:
+        for index in range(start, end):
+            chars[index] = " "
+    return "".join(chars)
+
+
+def only(text: str, start: int, end: int) -> str:
+    """The text with everything outside [start, end) replaced by spaces."""
+    return " " * start + text[start:end] + " " * (len(text) - end)
+
+
+def joined_spans(spans: Iterable[Span]) -> List[Span]:
+    """Sorted spans, with overlapping or touching ones joined."""
+    out: List[List[int]] = []
+    for left, right in sorted(spans):
+        if out and left <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], right)
+        else:
+            out.append([left, right])
+    return [(left, right) for left, right in out]
+
+
+def find_clause(text: str, now: datetime, tz: tzinfo, default_hour: int) -> Optional[Clause]:
+    """The first reminder clause that says when to nudge, or None (then the message is read as before)."""
+    low, positions = normalise(text)
+    if not positions:
+        return None
+
+    def back(start: int, end: int) -> Span:
+        return positions[start], positions[end - 1] + 1
+
+    for match in REMINDER_WORDS.finditer(low):
+        at_start = not low[:match.start("kw")].strip(" ,.;:-") or re.fullmatch(
+            r"\s*(?:please|pls|hey|ok|so|and|y|porfa|por favor|oye)?\s*,?\s*", low[:match.start("kw")]) is not None
+        end_of_sentence = SENTENCE_END.search(low, match.end())
+        stop = end_of_sentence.start() if end_of_sentence else len(low)
+        offset = OFFSET_BEFORE.match(low, match.end())
+        if offset and offset.end() <= stop:
+            words_start = back(match.end(), offset.end())[0] if offset.end() > match.end() else back(
+                match.start("kw"), match.end())[1]
+            clause = Clause(spans=[back(match.start(), offset.end())],
+                            words=text[words_start:back(match.start(), offset.end())[1]].strip(" ,"))
+            if offset.group("half"):
+                clause.offset = timedelta(minutes=30)
+            elif offset.group("unit"):
+                quantity = offset.group("qty")
+                count = int(quantity) if quantity.isdigit() else int(NUMBER_WORDS.get(squash(quantity),
+                                                                     2 if "par" in quantity or "couple" in quantity else 1))
+                unit = offset.group("unit").rstrip("s")
+                unit = {"min": "minute", "hr": "hour", "dia": "day"}.get(unit, unit)
+                if unit in UNIT_SECONDS:
+                    clause.offset = timedelta(seconds=count * UNIT_SECONDS[unit])
+                else:
+                    clause.days = count * UNIT_DAYS[unit]
+            elif offset.group("dayword") or offset.group("eve"):
+                phrase = squash(offset.group("dayword") or "the day")
+                clause.days = 1
+                clause.hour = EVENING_BEFORE_HOUR.get(phrase)
+            else:
+                clause.same = True
+            if clause.days and not clause.same:              # "the day before at 5pm": a clock of its own
+                tail = (Reader(only(text, *back(offset.end(), stop)), now, tz, default_hour).read()
+                        if offset.end() < stop else TimeResult("none"))
+                if tail.status == "ok" and tail.stated and tail.spans:
+                    clause.hour, clause.minute = tail.when.hour, tail.when.minute
+                    clause.spans += tail.spans
+                    clause.words = text[words_start:tail.spans[-1][1]].strip(" ,")
+            return clause
+        if at_start:                                        # "Remind me tomorrow at 9 to ...": the usual message
+            continue
+        # A time of its own after the reminder words: "Programming quiz next Friday, remind me tomorrow at 9 am".
+        if match.end() >= stop:
+            continue
+        own_reader = Reader(only(text, *back(match.end(), stop)), now, tz, default_hour)
+        own = own_reader.read()
+        if own.status == "none" or not own.spans:
+            continue
+        if len(own_reader.time_groups()) > 1:               # "remind me tonight at 23:59 and tomorrow at 10:30"
+            own = TimeResult("recurring", detail=text[own.spans[0][0]:own.spans[-1][1]].strip(" ,"),
+                             spans=own.spans)
+        clause = Clause(spans=[back(match.start(), match.end())] + own.spans,
+                        words=text[own.spans[0][0]:own.spans[-1][1]].strip(" ,"), own=own)
+        return clause
+    return None
+
+
+def read_reminder_clause(text: str, now: datetime, tz: tzinfo, default_hour: int) -> Optional[TimeResult]:
+    """The nudge time for a message with a reminder clause, or None when there is no such clause or the rest
+    of the message gives no time for the thing itself (then the usual reader decides)."""
+    clause = find_clause(text, now, tz, default_hour)
+    if clause is None:
+        return None
+    event = Reader(blank(text, clause.spans), now, tz, default_hour).read()
+    spans = joined_spans(event.spans + clause.spans)
+    if event.status == "none" and clause.own is None:       # "remind me the day before" with no day: ask when
+        return TimeResult("none", spans=spans)
+    if event.status == "none":                              # no time for the thing: not an event + reminder
+        return None
+    if event.status != "ok":                                # past, invalid, too far, repeating...: say so
+        return replace(event, spans=spans)
+    reader = Reader(text, now, tz, default_hour)
+    if clause.own is not None:
+        if clause.own.status != "ok":
+            return replace(clause.own, spans=spans)
+        nudge = clause.own.when
+    elif clause.same:
+        nudge = event.when
+    elif clause.offset is not None:
+        nudge = reader.after(-clause.offset, event.when)
+    else:
+        day = event.when.date() - timedelta(days=clause.days)
+        if clause.hour is not None:
+            nudge = reader.at(day, clause.hour, clause.minute)
+        elif event.stated:
+            nudge = reader.at(day, event.when.hour, event.when.minute)
+        else:
+            nudge = reader.at(day, default_hour)
+    # The red line (Class 7): never a nudge after the thing itself. A deadline with no time ("by Friday")
+    # lasts until the end of that day.
+    limit = event.when
+    if event.deadline and not event.stated:
+        limit = reader.at(event.when.date(), 23, 59)
+    if earlier(limit, nudge):
+        thing = text[event.spans[0][0]:event.spans[-1][1]].strip(" ,") if event.spans else ""
+        return TimeResult("invalid", detail=clause.words, detail_code="after_event",
+                          hint=re.sub(r"^(?:by|before|until|till|due|para|antes\s+del?|hasta)\s+", "", thing,
+                                      flags=re.IGNORECASE), spans=spans)
+    if not earlier(now - TOLERANCE, nudge):
+        return TimeResult("past", detail=clause.words, spans=spans)
+    return TimeResult("ok", when=nudge, stated=True, deadline=event.deadline, spans=spans)

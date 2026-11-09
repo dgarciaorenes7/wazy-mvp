@@ -58,11 +58,26 @@ from "a las 9 menos 70".
   Madrid time.
 - Known limits that no eval covers yet are listed in README.md ("Known limits").
 
+## Session 8 (9 Nov 2026): reminder clauses and the red line
+
+Written by hand. The Session 8 error analysis ran 15 new cases (10 normal, 5 attacks, mostly real messages
+from the old Wazy chat, kept out of this repository) and counted the first step that went wrong in each:
+time 5, title 3, message type 1. The fix was in the time step only (SPEC 3.7), plus one guardrail for the
+Class 7 red line.
+
+| What | Before the fix | After |
+|---|---|---|
+| The 15 Session 8 cases, time step errors | 5 | 1 |
+| The 15 Session 8 cases, final answers OK | 4 of 10 normal, 2 of 5 attacks | 4 of 10 normal, 3 of 5 attacks |
+| `session8_reminders` eval cases (16, written after the analysis) | 2 of 16 | 16 of 16 |
+| All other eval cases | 758 of 758 | 758 of 758 |
+| Unit tests (Python 3.9) | 1,022 | 1,034 |
+
 ## Latest run
 
-Run on 2026-11-03 19:33 with Python 3.9.25 (`python3.9 evals/run.py`).
+Run on 2026-11-09 22:46 with Python 3.9.25 (`python3.9 evals/run.py`).
 
-**758 of 758 cases pass (100.0%).** 0 fail. 0 case error(s).
+**774 of 774 cases pass (100.0%).** 0 fail. 0 case error(s).
 
 ### By category
 
@@ -80,10 +95,11 @@ Run on 2026-11-03 19:33 with Python 3.9.25 (`python3.9 evals/run.py`).
 | redteam_en | 61 | 61 | 100.0% |
 | redteam_es | 52 | 52 | 100.0% |
 | relative | 40 | 40 | 100.0% |
+| session8_reminders | 16 | 16 | 100.0% |
 | titles | 50 | 50 | 100.0% |
 | tz_edges | 45 | 45 | 100.0% |
 | vague_followups | 45 | 45 | 100.0% |
-| **Total** | 758 | 758 | 100.0% |
+| **Total** | 774 | 774 | 100.0% |
 
 ### Which step fails most often
 
